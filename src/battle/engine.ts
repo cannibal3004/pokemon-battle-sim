@@ -529,7 +529,12 @@ export class Battle {
 
   private faint(c: Combatant, evts: BattleEvent[]) {
     c.hp = 0;
-    evts.push({ kind: "faint", side: c.side, text: `${c.def.displayName} fainted!` });
+    evts.push({
+      kind: "faint",
+      side: c.side,
+      cry: c.def.cry,
+      text: `${c.def.displayName} fainted!`,
+    });
     if (!this.survivors(c.side)) {
       this.over = OTHER[c.side];
       return;

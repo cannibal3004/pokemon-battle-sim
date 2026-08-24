@@ -156,6 +156,6 @@ export type BattleEvent =
     }
   | { kind: "ability-note"; side: Side; text: string }
   | { kind: "item-note"; side: Side; text: string }
-  | { kind: "faint"; side: Side; text: string }
+  | { kind: "faint"; side: Side; cry: string; text: string }
   | { kind: "switch"; side: Side; index: number; text: string }
   | { kind: "end"; winner: Side };

@@ -163,9 +163,14 @@ export function useBattle(teams: Teams, chart: number[][]) {
   }, [teams, chart]);
 
   const applyEvent = useCallback((ev: BattleEvent) => {
+    const b = battleRef.current;
+    if (!b) return;
+    // Cries are side effects — play them outside the state updater, which
+    // StrictMode double-invokes in development (would double every cry).
+    if (ev.kind === "faint") playCry(ev.cry);
+    if (ev.kind === "switch") playCry(b.combatants[ev.side].def.cry);
+
     setView((v) => {
-      const b = battleRef.current;
-      if (!b) return v;
       const p = b.combatants.player;
       const a = b.combatants.ai;
       const next: BattleView = {
@@ -235,16 +240,12 @@ export function useBattle(teams: Teams, chart: number[][]) {
         case "faint":
           next.fx[ev.side] = "faint";
           log(ev.text);
-          playCry(
-            ev.side === "player" ? b.combatants.player.def.cry : b.combatants.ai.def.cry,
-          );
           break;
         case "switch": {
           const c = b.combatants[ev.side];
           next.activeIdx = { ...next.activeIdx, [ev.side]: ev.index };
           next.names = { ...next.names, [ev.side]: c.def.displayName };
           next.fx = { ...next.fx, [ev.side]: "none" };
-          playCry(c.def.cry);
           log(ev.text);
           break;
         }
