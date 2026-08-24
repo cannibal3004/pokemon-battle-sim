@@ -10,7 +10,8 @@ import type {
   StatusId,
 } from "../battle/types";
 
-export type Phase = "intro" | "choosing" | "animating" | "victory" | "defeat";
+export type Teams = { player: Combatant[]; ai: Combatant[] };
+export type Phase = "intro" | "choosing" | "switching" | "animating" | "victory" | "defeat";
 export type FxKind = "none" | "attack" | "hit" | "faint";
 
 export interface Floater {
@@ -21,9 +22,18 @@ export interface Floater {
   createdAt: number;
 }
 
+export interface TeamMemberView {
+  name: string;
+  hp: number;
+  maxHp: number;
+  status: StatusId;
+  fainted: boolean;
+}
+
 export interface BattleView {
   phase: Phase;
   turn: number;
+  activeIdx: Record<Side, number>;
   hp: Record<Side, number>;
   maxHp: Record<Side, number>;
   status: Record<Side, StatusId>;
@@ -35,26 +45,43 @@ export interface BattleView {
   floaters: Floater[];
   log: string[];
   names: Record<Side, string>;
+  team: Record<Side, TeamMemberView[]>;
+  mustSwitch: boolean;
 }
 
-function initialView(player: Combatant, ai: Combatant): BattleView {
+function memberViews(team: Combatant[]): TeamMemberView[] {
+  return team.map((c) => ({
+    name: c.def.displayName,
+    hp: c.hp,
+    maxHp: c.maxHp,
+    status: c.status,
+    fainted: c.hp <= 0,
+  }));
+}
+
+function initialView(teams: Teams): BattleView {
+  const p = teams.player[0];
+  const a = teams.ai[0];
   return {
     phase: "choosing",
     turn: 0,
-    hp: { player: player.hp, ai: ai.hp },
-    maxHp: { player: player.maxHp, ai: ai.maxHp },
-    status: { player: player.status, ai: ai.status },
-    stages: { player: { ...player.stages }, ai: { ...ai.stages } },
+    activeIdx: { player: 0, ai: 0 },
+    hp: { player: p.hp, ai: a.hp },
+    maxHp: { player: p.maxHp, ai: a.maxHp },
+    status: { player: p.status, ai: a.status },
+    stages: { player: { ...p.stages }, ai: { ...a.stages } },
     pp: {
-      player: player.moves.map((m) => m.pp),
-      ai: ai.moves.map((m) => m.pp),
+      player: p.moves.map((m) => m.pp),
+      ai: a.moves.map((m) => m.pp),
     },
-    locked: { player: player.lockedMove, ai: ai.lockedMove },
+    locked: { player: p.lockedMove, ai: a.lockedMove },
     fx: { player: "none", ai: "none" },
     ticks: { player: 0, ai: 0 },
     floaters: [],
     log: [],
-    names: { player: player.def.displayName, ai: ai.def.displayName },
+    names: { player: p.def.displayName, ai: a.def.displayName },
+    team: { player: memberViews(teams.player), ai: memberViews(teams.ai) },
+    mustSwitch: false,
   };
 }
 
@@ -72,6 +99,8 @@ function delayFor(ev: BattleEvent): number {
       return 550;
     case "faint":
       return 1500;
+    case "switch":
+      return 1700;
     case "end":
       return 900;
     default:
@@ -79,62 +108,59 @@ function delayFor(ev: BattleEvent): number {
   }
 }
 
-export function useBattle(player: Combatant, ai: Combatant, chart: number[][]) {
+export function useBattle(teams: Teams, chart: number[][]) {
   const battleRef = useRef<Battle | null>(null);
   const busyRef = useRef(false);
   const floaterIdRef = useRef(0);
   const [view, setView] = useState<BattleView>(() => ({
-    ...initialView(player, ai),
+    ...initialView(teams),
     phase: "intro",
   }));
   const [battleSeq, setBattleSeq] = useState(0);
+  const viewRef = useRef(view);
+  useEffect(() => {
+    viewRef.current = view;
+  });
 
   useEffect(() => {
-    const battle = new Battle(player, ai, chart);
+    const battle = new Battle(teams, chart);
     battleRef.current = battle;
     busyRef.current = false;
-    setView({ ...initialView(player, ai), phase: "intro" });
+    setView({ ...initialView(teams), phase: "intro" });
     setBattleSeq((s) => s + 1);
 
+    const p = teams.player[0];
+    const a = teams.ai[0];
     const timers: number[] = [];
     const schedule = (ms: number, fn: () => void) =>
       timers.push(window.setTimeout(fn, ms));
     const inIntro = (v: BattleView) => v.phase === "intro";
 
     schedule(1000, () => {
-      playCry(player.def.cry);
+      playCry(p.def.cry);
       setView((v) =>
-        inIntro(v)
-          ? { ...v, log: [...v.log, `Go! ${player.def.displayName}!`] }
-          : v,
+        inIntro(v) ? { ...v, log: [...v.log, `Go! ${p.def.displayName}!`] } : v,
       );
     });
     schedule(2200, () => {
-      playCry(ai.def.cry);
+      playCry(a.def.cry);
       setView((v) =>
         inIntro(v)
-          ? {
-              ...v,
-              log: [...v.log, `A wild ${ai.def.displayName} appears!`],
-            }
+          ? { ...v, log: [...v.log, `A wild ${a.def.displayName} appears!`] }
           : v,
       );
     });
     schedule(3200, () => {
       const extras = [
-        `${player.def.displayName} — ${player.ability.replace(/_/g, " ")} / ${player.nature}`,
-        `${ai.def.displayName} — ${ai.ability.replace(/_/g, " ")} / ${ai.nature}`,
+        `${p.def.displayName} — ${p.ability.replace(/_/g, " ")} / ${p.nature}`,
+        `${a.def.displayName} — ${a.ability.replace(/_/g, " ")} / ${a.nature}`,
         ...battle.startEvents().flatMap((e) => ("text" in e ? [e.text] : [])),
       ];
-      setView((v) =>
-        inIntro(v)
-          ? { ...v, phase: "choosing", log: [...v.log, ...extras] }
-          : v,
-      );
+      setView((v) => (inIntro(v) ? { ...v, phase: "choosing", log: [...v.log, ...extras] } : v));
     });
 
     return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [player, ai, chart]);
+  }, [teams, chart]);
 
   const applyEvent = useCallback((ev: BattleEvent) => {
     setView((v) => {
@@ -210,11 +236,18 @@ export function useBattle(player: Combatant, ai: Combatant, chart: number[][]) {
           next.fx[ev.side] = "faint";
           log(ev.text);
           playCry(
-            ev.side === "player"
-              ? b.combatants.player.def.cry
-              : b.combatants.ai.def.cry,
+            ev.side === "player" ? b.combatants.player.def.cry : b.combatants.ai.def.cry,
           );
           break;
+        case "switch": {
+          const c = b.combatants[ev.side];
+          next.activeIdx = { ...next.activeIdx, [ev.side]: ev.index };
+          next.names = { ...next.names, [ev.side]: c.def.displayName };
+          next.fx = { ...next.fx, [ev.side]: "none" };
+          playCry(c.def.cry);
+          log(ev.text);
+          break;
+        }
         case "miss":
         case "no-effect":
         case "paralyzed":
@@ -227,14 +260,39 @@ export function useBattle(player: Combatant, ai: Combatant, chart: number[][]) {
         case "end":
           break;
       }
-      return next;
+
+      return {
+        ...next,
+        team: { player: memberViews(b.teams.player), ai: memberViews(b.teams.ai) },
+      };
     });
+  }, []);
+
+  /** Decide the resting phase once an event stream finishes. */
+  const settle = useCallback((battle: Battle) => {
+    setView((v) => ({
+      ...v,
+      fx: {
+        player: v.fx.player === "faint" ? "faint" : "none",
+        ai: v.fx.ai === "faint" ? "faint" : "none",
+      },
+      phase:
+        battle.over !== null
+          ? battle.over === "player"
+            ? "victory"
+            : "defeat"
+          : battle.player.hp <= 0
+            ? "switching"
+            : "choosing",
+      mustSwitch: battle.over === null && battle.player.hp <= 0,
+    }));
   }, []);
 
   const chooseMove = useCallback(
     async (idx: number) => {
       const battle = battleRef.current;
       if (!battle || busyRef.current || battle.over !== null) return;
+      if (viewRef.current.phase !== "choosing") return;
       busyRef.current = true;
       setView((v) => ({ ...v, phase: "animating" }));
 
@@ -245,23 +303,49 @@ export function useBattle(player: Combatant, ai: Combatant, chart: number[][]) {
         await sleep(delayFor(ev));
       }
 
-      setView((v) => ({
-        ...v,
-        fx: {
-          player: v.fx.player === "faint" ? "faint" : "none",
-          ai: v.fx.ai === "faint" ? "faint" : "none",
-        },
-        phase:
-          battle.over === null
-            ? "choosing"
-            : battle.over === "player"
-              ? "victory"
-              : "defeat",
-      }));
+      settle(battle);
       busyRef.current = false;
     },
-    [applyEvent],
+    [applyEvent, settle],
   );
+
+  /** Player picked a replacement (forced after a faint, or voluntary). */
+  const chooseSwitch = useCallback(
+    async (idx: number) => {
+      const battle = battleRef.current;
+      if (!battle || busyRef.current || battle.over !== null) return;
+      const cur = viewRef.current;
+      if (cur.phase !== "switching") return;
+      const c = battle.teams.player[idx];
+      if (!c || c.hp <= 0 || idx === battle.playerActive) return;
+      busyRef.current = true;
+      setView((v) => ({ ...v, phase: "animating" }));
+
+      const events = cur.mustSwitch ? battle.sendIn("player", idx) : battle.voluntarySwitch(idx);
+      for (const ev of events) {
+        applyEvent(ev);
+        await sleep(delayFor(ev));
+      }
+
+      settle(battle);
+      busyRef.current = false;
+    },
+    [applyEvent, settle],
+  );
+
+  /** Open the voluntary switch picker (costs the turn). */
+  const openSwitch = useCallback(() => {
+    const battle = battleRef.current;
+    if (!battle || busyRef.current || battle.over !== null) return;
+    if (viewRef.current.phase !== "choosing") return;
+    setView((v) => ({ ...v, phase: "switching", mustSwitch: false }));
+  }, []);
+
+  const cancelSwitch = useCallback(() => {
+    const cur = viewRef.current;
+    if (cur.phase !== "switching" || cur.mustSwitch || busyRef.current) return;
+    setView((v) => ({ ...v, phase: "choosing", mustSwitch: false }));
+  }, []);
 
   useEffect(() => {
     if (view.floaters.length === 0) return;
@@ -274,5 +358,5 @@ export function useBattle(player: Combatant, ai: Combatant, chart: number[][]) {
     return () => clearTimeout(t);
   }, [view.floaters]);
 
-  return { view, chooseMove, battleSeq };
+  return { view, chooseMove, chooseSwitch, openSwitch, cancelSwitch, battleSeq };
 }

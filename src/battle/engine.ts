@@ -1,6 +1,7 @@
+import { chooseAiMove } from "./ai";
 import { getAbility, isMagicGuard } from "./abilities";
 import { calculateDamage } from "./damage";
-import { effectiveSpeed, stageWord, statLabel } from "./stats";
+import { emptyStages, effectiveSpeed, stageWord, statLabel } from "./stats";
 import type {
   BattleEvent,
   Combatant,
@@ -40,40 +41,141 @@ const STATUS_TEXT: Record<Exclude<StatusId, "none" | "flinch">, string> = {
 export class Battle {
   turn = 0;
   over: Side | null = null;
-  readonly combatants: { player: Combatant; ai: Combatant };
+  readonly teams: { player: Combatant[]; ai: Combatant[] };
   readonly chart: number[][];
+  playerActive = 0;
+  aiActive = 0;
 
-  constructor(player: Combatant, ai: Combatant, chart: number[][]) {
-    this.combatants = { player, ai };
+  constructor(teams: { player: Combatant[]; ai: Combatant[] }, chart: number[][]) {
+    this.teams = teams;
     this.chart = chart;
+  }
+
+  get player(): Combatant {
+    return this.teams.player[this.playerActive];
+  }
+
+  get ai(): Combatant {
+    return this.teams.ai[this.aiActive];
+  }
+
+  get combatants(): { player: Combatant; ai: Combatant } {
+    return { player: this.player, ai: this.ai };
+  }
+
+  survivors(side: Side): boolean {
+    return this.teams[side].some((c) => c.hp > 0);
   }
 
   startEvents(): BattleEvent[] {
     const evts: BattleEvent[] = [];
     for (const side of ["player", "ai"] as Side[]) {
-      const c = this.combatants[side];
-      const ability = getAbility(c.ability);
-      if (ability?.intimidate) {
-        const foe = this.combatants[OTHER[side]];
-        if (foe.stages.attack > -6) {
-          foe.stages.attack--;
-          evts.push({
-            kind: "ability-note",
-            side,
-            text: `${c.def.displayName}'s ${ability.name} intimidated ${foe.def.displayName}!`,
-          });
-          evts.push({
-            kind: "stat-change",
-            side: OTHER[side],
-            stat: "attack",
-            delta: -1,
-            stages: foe.stages.attack,
-            text: `${foe.def.displayName}'s Attack ${stageWord(-1)}!`,
-          });
-        }
-      }
+      this.enterEffects(this.combatants[side], evts);
     }
     return evts;
+  }
+
+  /** Intimidate (and future entry abilities) when a Pokemon enters the field. */
+  private enterEffects(c: Combatant, evts: BattleEvent[]) {
+    const ability = getAbility(c.ability);
+    if (ability?.intimidate) {
+      const foe = this.combatants[OTHER[c.side]];
+      if (foe.hp > 0 && foe.stages.attack > -6) {
+        foe.stages.attack--;
+        evts.push({
+          kind: "ability-note",
+          side: c.side,
+          text: `${c.def.displayName}'s ${ability.name} intimidated ${foe.def.displayName}!`,
+        });
+        evts.push({
+          kind: "stat-change",
+          side: OTHER[c.side],
+          stat: "attack",
+          delta: -1,
+          stages: foe.stages.attack,
+          text: `${foe.def.displayName}'s Attack ${stageWord(-1)}!`,
+        });
+      }
+    }
+  }
+
+  /**
+   * Switch a Pokemon in after its current active fainted (free action, no turn consumed).
+   * Only called for the player; the AI auto-sends inside faint().
+   */
+  sendIn(side: Side, index: number): BattleEvent[] {
+    const evts: BattleEvent[] = [];
+    this.setActive(side, index);
+    const c = this.combatants[side];
+    evts.push({
+      kind: "switch",
+      side,
+      index,
+      text:
+        side === "player"
+          ? `Go, ${c.def.displayName}!`
+          : `The enemy sent out ${c.def.displayName}!`,
+    });
+    this.enterEffects(c, evts);
+    return evts;
+  }
+
+  /** Voluntary switch: the player's replacement goes in, but the enemy still gets its move. */
+  voluntarySwitch(playerIdx: number): BattleEvent[] {
+    if (this.over !== null) return [];
+    const evts: BattleEvent[] = [];
+    this.turn++;
+    evts.push({ kind: "turn", turn: this.turn });
+
+    this.setActive("player", playerIdx);
+    const c = this.player;
+    evts.push({
+      kind: "switch",
+      side: "player",
+      index: playerIdx,
+      text: `Go, ${c.def.displayName}!`,
+    });
+    this.enterEffects(c, evts);
+
+    const aiIdx = chooseAiMove(this, "ai");
+    const actor = this.ai;
+    const target = this.player;
+    if (actor.hp > 0 && target.hp > 0) {
+      evts.push(...this.useMove(actor, target, aiIdx));
+    }
+
+    for (const side of ["ai", "player"] as Side[]) {
+      if (this.over !== null) break;
+      evts.push(...this.endOfTurn(this.combatants[side], side));
+    }
+
+    if (this.over !== null) evts.push({ kind: "end", winner: this.over });
+    return evts;
+  }
+
+  /** Pick which fainted side's replacement the AI sends in. */
+  private pickAiSend(): number {
+    const team = this.teams.ai;
+    let best = -1;
+    let bestRatio = -1;
+    team.forEach((c, i) => {
+      if (c.hp <= 0) return;
+      const ratio = c.hp / c.maxHp;
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        best = i;
+      }
+    });
+    return best === -1 ? 0 : best;
+  }
+
+  /** Swap the active; stat stages reset when a Pokemon leaves the field (real-game rule). */
+  private setActive(side: Side, index: number) {
+    const cur = side === "player" ? this.playerActive : this.aiActive;
+    if (cur === index) return;
+    this.teams[side][cur].stages = emptyStages();
+    if (side === "player") this.playerActive = index;
+    else this.aiActive = index;
   }
 
   runTurn(playerIdx: number, aiIdx: number): BattleEvent[] {
@@ -82,15 +184,25 @@ export class Battle {
     this.turn++;
     evts.push({ kind: "turn", turn: this.turn });
 
-    const { player, ai } = this.combatants;
-    const pPrio = player.moves[playerIdx]?.def.priority ?? 0;
-    const aPrio = ai.moves[aiIdx]?.def.priority ?? 0;
+    // Capture the committed actors up front: a mid-turn switch-in must not act
+    // on the turn it entered, and a fainted actor's move is wasted.
+    const actors: Record<Side, Combatant> = { player: this.player, ai: this.ai };
+    const pPrio = actors.player.moves[playerIdx]?.def.priority ?? 0;
+    const aPrio = actors.ai.moves[aiIdx]?.def.priority ?? 0;
     let first: Side;
     if (pPrio !== aPrio) {
       first = pPrio > aPrio ? "player" : "ai";
     } else {
-      const pSpeed = effectiveSpeed(player.stats, player.stages, player.status === "paralysis");
-      const aSpeed = effectiveSpeed(ai.stats, ai.stages, ai.status === "paralysis");
+      const pSpeed = effectiveSpeed(
+        actors.player.stats,
+        actors.player.stages,
+        actors.player.status === "paralysis",
+      );
+      const aSpeed = effectiveSpeed(
+        actors.ai.stats,
+        actors.ai.stages,
+        actors.ai.status === "paralysis",
+      );
       if (pSpeed !== aSpeed) first = pSpeed > aSpeed ? "player" : "ai";
       else first = Math.random() < 0.5 ? "player" : "ai";
     }
@@ -98,8 +210,8 @@ export class Battle {
     const order: Side[] = [first, OTHER[first]];
     for (const side of order) {
       if (this.over !== null) break;
-      const actor = this.combatants[side];
-      const target = this.combatants[OTHER[side]];
+      const actor = actors[side];
+      const target = actors[OTHER[side]];
       if (actor.hp <= 0 || target.hp <= 0) continue;
       const idx = side === "player" ? playerIdx : aiIdx;
       evts.push(...this.useMove(actor, target, idx));
@@ -418,6 +530,14 @@ export class Battle {
   private faint(c: Combatant, evts: BattleEvent[]) {
     c.hp = 0;
     evts.push({ kind: "faint", side: c.side, text: `${c.def.displayName} fainted!` });
-    this.over = OTHER[c.side];
+    if (!this.survivors(c.side)) {
+      this.over = OTHER[c.side];
+      return;
+    }
+    if (c.side === "ai") {
+      // The AI immediately sends in its next Pokemon (free action).
+      // The player is prompted to choose by the UI after the event stream ends.
+      evts.push(...this.sendIn("ai", this.pickAiSend()));
+    }
   }
 }

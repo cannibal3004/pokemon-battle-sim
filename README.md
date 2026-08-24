@@ -1,17 +1,18 @@
 # Pokémon Battle Arena
 
-A web-based 1v1 Pokémon battle arena powered entirely by [PokeAPI](https://pokeapi.co/docs/v2). Pick a fighter from the Kanto dex, load it out with a held item, and battle a random challenger controlled by a simple AI.
+A web-based 6v6 Pokémon team-battle arena powered entirely by [PokeAPI](https://pokeapi.co/docs/v2). Build a full team of six from the Kanto dex, load each one out with a held item, and battle a randomly-rolled enemy squad controlled by a simple AI.
 
 Built with **Vite + React + TypeScript**.
 
 ## Features
 
-- **Lobby** — search the 151-species Kanto dex by name or number, pick a level (20–100), choose a held item, and reroll your random challenger
+- **Team building** — search the 151-species Kanto dex by name or number, add up to six Pokémon (first slot leads), set a shared team level (20–100), give each member a held item, and reroll your random six-Pokémon challenger
 - **Authentic-ish combat** — the real damage formula (STAB, type effectiveness, critical hits, accuracy, stat stage multipliers), burn/paralysis/poison with end-of-turn damage, flinch, PP tracking, move recoil and drain, priority moves, and speed-based turn order (paralysis halves speed)
+- **Switching** — switch out voluntarily (costs your turn) or when your active faints (free); the AI auto-sends its next healthiest survivor, and a switch-in can trigger entry effects like Intimidate. Stat stages reset when a Pokémon leaves the field
 - **Abilities** — Overgrow/Blaze/Swarm, Levitate, Thick Fat, Guts, Intimidate, Sturdy, Multiscale, Magic Guard (other abilities pass through harmlessly)
 - **Items** — Choice Band / Choice Specs (move lock), Life Orb, Focus Sash, Leftovers, Eviolite (evolution-aware), Assault Vest (blocks status moves)
 - **AI opponent** — picks moves by expected damage with KO detection and a little randomness
-- **Gameboy-style presentation** — pokeball sendout animation, back sprite for your Pokémon, animated Gen 5 sprites, HP bars with color states, stat stage readouts, battle log, floating damage numbers, and Pokémon cries on sendout and faint (volume 0.45)
+- **Gameboy-style presentation** — pokeball sendout animation, back sprite for your Pokémon, animated Gen 5 sprites, per-team HP pips, HP bars with color states, stat stage readouts, battle log, floating damage numbers, and Pokémon cries on sendout and faint (volume 0.45)
 - **Rematch / New Opponent / Change Team** between battles
 
 ## Getting started
@@ -44,7 +45,7 @@ src/
     damage.ts     damage formula + AI damage estimation
     abilities.ts  implemented ability definitions
     items.ts      item definitions and effects
-    engine.ts     turn resolution: order, moves, statuses, residuals, faints
+    engine.ts     turn resolution: order, moves, statuses, residuals, faints, switching
     ai.ts         CPU move selection
   hooks/
     useBattle.ts  plays engine events back as UI state (HP, log, FX, phase)
@@ -63,4 +64,5 @@ src/
 - No sleep/freeze/toxic (poison is modeled as regular poison)
 - No weather, terrain, or multi-hit moves
 - Charge moves (Solar Beam, Hyper Beam, ...) fire immediately with no recharge turn
-- Single-Pokemon battles — no switching
+- No healing items (Potions, Full Restore), no held-berry effects, and no items that react to switches
+- The AI never switches on its own initiative — it only sends the next survivor after a faint

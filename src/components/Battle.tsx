@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rollAiItem, getItemDef } from "../battle/items";
-import type { Combatant, NatureDef, PokemonDef } from "../battle/types";
-import { buildPokemonDef, createCombatant, pickAbility, randomNature } from "../data/pokemon";
-import { useBattle } from "../hooks/useBattle";
+import type { Combatant, NatureDef, PokemonDef, Side } from "../battle/types";
+import {
+  buildPokemonDef,
+  createCombatant,
+  dexSprite,
+  pickAbility,
+  randomAiTeamIds,
+  randomNature,
+} from "../data/pokemon";
+import { useBattle, type TeamMemberView, type Teams } from "../hooks/useBattle";
 import { HpBar } from "./HpBar";
 import { StageTable, StatusBadge, TYPE_COLORS, TypeBadges } from "./badges";
 
 export interface MatchSetup {
-  playerDef: PokemonDef;
-  aiDef: PokemonDef;
+  playerTeam: { def: PokemonDef; item: string }[];
+  aiTeam: PokemonDef[];
   level: number;
-  playerItem: string;
 }
 
 interface BattleScreenProps {
@@ -20,25 +26,64 @@ interface BattleScreenProps {
   onExit: () => void;
 }
 
-function makeCombatants(setup: MatchSetup, natures: NatureDef[]): { player: Combatant; ai: Combatant } {
+function makeTeams(setup: MatchSetup, natures: NatureDef[]): Teams {
   return {
-    player: createCombatant(
-      "player",
-      setup.playerDef,
-      setup.level,
-      randomNature(natures),
-      pickAbility(setup.playerDef),
-      setup.playerItem,
+    player: setup.playerTeam.map((m) =>
+      createCombatant(
+        "player",
+        m.def,
+        setup.level,
+        randomNature(natures),
+        pickAbility(m.def),
+        m.item,
+      ),
     ),
-    ai: createCombatant(
-      "ai",
-      setup.aiDef,
-      setup.level,
-      randomNature(natures),
-      pickAbility(setup.aiDef),
-      rollAiItem(),
+    ai: setup.aiTeam.map((def) =>
+      createCombatant(
+        "ai",
+        def,
+        setup.level,
+        randomNature(natures),
+        pickAbility(def),
+        rollAiItem(),
+      ),
     ),
   };
+}
+
+function PipHp({ hp, max }: { hp: number; max: number }) {
+  return (
+    <span className="pip-hp">
+      <span className="pip-hp-fill" style={{ width: `${Math.max(0, (hp / max) * 100)}%` }} />
+    </span>
+  );
+}
+
+function TeamStrip({
+  side,
+  members,
+  activeIdx,
+  defs,
+}: {
+  side: Side;
+  members: TeamMemberView[];
+  activeIdx: number;
+  defs: PokemonDef[];
+}) {
+  return (
+    <div className={`team-strip ${side}`}>
+      {members.map((m, i) => (
+        <div
+          key={defs[i]?.id ?? i}
+          className={`team-pip${i === activeIdx ? " active" : ""}${m.fainted ? " fainted" : ""}`}
+        >
+          <img src={dexSprite(defs[i]?.id ?? 0)} alt="" />
+          <span className="pip-name">{m.name}</span>
+          <PipHp hp={m.hp} max={m.maxHp} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function SpriteZone({
@@ -84,19 +129,12 @@ function SpriteZone({
   );
 }
 
-export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProps) {
-  const [aiDef, setAiDef] = useState(setup.aiDef);
+export function BattleScreen({ setup: initialSetup, chart, natures, onExit }: BattleScreenProps) {
+  const [setup, setSetup] = useState(initialSetup);
   const [summoning, setSummoning] = useState(false);
-  const effectiveSetup = useMemo<MatchSetup>(
-    () => ({ ...setup, aiDef }),
-    [setup, aiDef],
-  );
-  const [combatants, setCombatants] = useState(() => makeCombatants(setup, natures));
-  const { view, chooseMove, battleSeq } = useBattle(
-    combatants.player,
-    combatants.ai,
-    chart,
-  );
+  const [combatants, setCombatants] = useState<Teams>(() => makeTeams(initialSetup, natures));
+  const { view, chooseMove, chooseSwitch, openSwitch, cancelSwitch, battleSeq } =
+    useBattle(combatants, chart);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,36 +142,39 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
     if (el) el.scrollTop = el.scrollHeight;
   }, [view.log.length]);
 
-  const { player, ai } = combatants;
+  const playerTeam = combatants.player;
+  const aiTeam = combatants.ai;
+  const playerActive: Combatant = playerTeam[view.activeIdx.player];
+  const aiActive: Combatant = aiTeam[view.activeIdx.ai];
 
   const moveDisabled = (i: number): boolean => {
     if (view.phase !== "choosing") return true;
     if ((view.pp.player[i] ?? 0) <= 0) return true;
     if (view.locked.player !== null && view.locked.player !== i) return true;
-    const m = player.moves[i]?.def;
+    const m = playerActive.moves[i]?.def;
     if (!m) return true;
-    if (player.item === "assault_vest" && m.class === "status") return true;
+    if (playerActive.item === "assault_vest" && m.class === "status") return true;
     return false;
   };
 
   const allOut = useMemo(
-    () => player.moves.every((_, i) => (view.pp.player[i] ?? 0) <= 0),
-    [player.moves, view.pp.player],
+    () => playerActive.moves.every((_, i) => (view.pp.player[i] ?? 0) <= 0),
+    [playerActive.moves, view.pp.player],
   );
 
-  const playerItemDef = getItemDef(player.item);
-  const aiItemDef = getItemDef(ai.item);
+  const playerItemDef = getItemDef(playerActive.item);
+  const aiItemDef = getItemDef(aiActive.item);
   const over = view.phase === "victory" || view.phase === "defeat";
 
   const newOpponent = async () => {
     if (summoning) return;
     setSummoning(true);
     try {
-      let id = 1 + Math.floor(Math.random() * 251);
-      if (id === setup.playerDef.id) id = (id % 251) + 2;
-      const def = await buildPokemonDef(id);
-      setAiDef(def);
-      setCombatants(makeCombatants({ ...setup, aiDef: def }, natures));
+      const ids = randomAiTeamIds(6, setup.playerTeam.map((m) => m.def.id));
+      const aiTeamDefs = await Promise.all(ids.map(buildPokemonDef));
+      const next = { ...setup, aiTeam: aiTeamDefs };
+      setSetup(next);
+      setCombatants(makeTeams(next, natures));
     } finally {
       setSummoning(false);
     }
@@ -152,7 +193,7 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
             <span className="lvl">Lv{setup.level}</span>
           </div>
           <div className="card-mid">
-            <TypeBadges types={aiDef.types} />
+            <TypeBadges types={aiActive.def.types} />
             <StatusBadge status={view.status.ai} />
           </div>
           <HpBar current={view.hp.ai} max={view.maxHp.ai} />
@@ -164,21 +205,35 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
           </div>
         </div>
 
-        <SpriteZone
-          key={`ai-${battleSeq}`}
+        <TeamStrip
           side="ai"
-          sprite={aiDef.sprite}
-          backSprite={aiDef.backSprite}
+          members={view.team.ai}
+          activeIdx={view.activeIdx.ai}
+          defs={aiTeam.map((c) => c.def)}
+        />
+
+        <SpriteZone
+          key={`ai-${battleSeq}-${aiActive.def.id}`}
+          side="ai"
+          sprite={aiActive.def.sprite}
+          backSprite={aiActive.def.backSprite}
           fx={view.fx.ai}
           tick={view.ticks.ai}
           floaters={view.floaters.filter((f) => f.side === "ai")}
         />
 
-        <SpriteZone
-          key={`player-${battleSeq}`}
+        <TeamStrip
           side="player"
-          sprite={setup.playerDef.sprite}
-          backSprite={setup.playerDef.backSprite}
+          members={view.team.player}
+          activeIdx={view.activeIdx.player}
+          defs={playerTeam.map((c) => c.def)}
+        />
+
+        <SpriteZone
+          key={`player-${battleSeq}-${playerActive.def.id}`}
+          side="player"
+          sprite={playerActive.def.sprite}
+          backSprite={playerActive.def.backSprite}
           fx={view.fx.player}
           tick={view.ticks.player}
           floaters={view.floaters.filter((f) => f.side === "player")}
@@ -190,7 +245,7 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
             <span className="lvl">Lv{setup.level}</span>
           </div>
           <div className="card-mid">
-            <TypeBadges types={setup.playerDef.types} />
+            <TypeBadges types={playerActive.def.types} />
             <StatusBadge status={view.status.player} />
           </div>
           <HpBar current={view.hp.player} max={view.maxHp.player} />
@@ -206,37 +261,80 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
       </div>
 
       <div className="battle-bottom">
-        <div className="move-grid">
-          {player.moves.map((m, i) => (
-            <button
-              key={m.def.id}
-              className="move-btn"
-              disabled={moveDisabled(i)}
-              onClick={() => chooseMove(i)}
-            >
-              <span className="move-name">{m.def.displayName}</span>
-              <span className="move-meta">
-                <span
-                  className="type-badge"
-                  style={{ backgroundColor: TYPE_COLORS[m.def.type] }}
-                >
-                  {m.def.type}
-                </span>
-                <span>{m.def.class === "status" ? "Status" : m.def.power}</span>
-                <span className="pp">
-                  PP {view.pp.player[i] ?? 0}/{m.def.maxPp}
-                </span>
-              </span>
-            </button>
-          ))}
-          {allOut && view.phase === "choosing" && (
-            <button className="move-btn struggle" onClick={() => chooseMove(0)}>
-              <span className="move-name">Struggle</span>
-              <span className="move-meta">
-                <span>Normal</span>
-                <span>20</span>
-              </span>
-            </button>
+        <div className="action-panel">
+          {view.phase === "switching" ? (
+            <div className="switch-picker">
+              <h3>
+                {view.mustSwitch
+                  ? "Send out a replacement"
+                  : "Switch to which Pok\u00e9mon? (costs your turn)"}
+              </h3>
+              <div className="team-pick-grid">
+                {playerTeam.map((m, i) => {
+                  const disabled = m.hp <= 0 || i === view.activeIdx.player;
+                  return (
+                    <button
+                      key={m.def.id}
+                      className="team-pick"
+                      disabled={disabled}
+                      onClick={() => chooseSwitch(i)}
+                    >
+                      <img src={dexSprite(m.def.id)} alt="" />
+                      <span className="pick-name">{m.def.displayName}</span>
+                      <PipHp hp={m.hp} max={m.maxHp} />
+                    </button>
+                  );
+                })}
+              </div>
+              {!view.mustSwitch && (
+                <button className="switch-cancel" onClick={cancelSwitch}>
+                  Cancel &mdash; fight instead
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="move-grid">
+                {playerActive.moves.map((m, i) => (
+                  <button
+                    key={m.def.id}
+                    className="move-btn"
+                    disabled={moveDisabled(i)}
+                    onClick={() => chooseMove(i)}
+                  >
+                    <span className="move-name">{m.def.displayName}</span>
+                    <span className="move-meta">
+                      <span
+                        className="type-badge"
+                        style={{ backgroundColor: TYPE_COLORS[m.def.type] }}
+                      >
+                        {m.def.type}
+                      </span>
+                      <span>{m.def.class === "status" ? "Status" : m.def.power}</span>
+                      <span className="pp">
+                        PP {view.pp.player[i] ?? 0}/{m.def.maxPp}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {allOut && view.phase === "choosing" && (
+                  <button className="move-btn struggle" onClick={() => chooseMove(0)}>
+                    <span className="move-name">Struggle</span>
+                    <span className="move-meta">
+                      <span>Normal</span>
+                      <span>20</span>
+                    </span>
+                  </button>
+                )}
+              </div>
+              <button
+                className="switch-btn"
+                onClick={openSwitch}
+                disabled={view.phase !== "choosing"}
+              >
+                Switch
+              </button>
+            </>
           )}
         </div>
         <div className="log" ref={logRef}>
@@ -256,12 +354,12 @@ export function BattleScreen({ setup, chart, natures, onExit }: BattleScreenProp
             </h2>
             <p>
               {view.phase === "victory"
-                ? `${view.names.player} won the battle!`
-                : `${view.names.ai} won the battle.`}
+                ? "Your team defeated the enemy team!"
+                : "Your team was defeated."}
             </p>
             <div className="result-buttons">
               <button
-                onClick={() => setCombatants(makeCombatants(effectiveSetup, natures))}
+                onClick={() => setCombatants(makeTeams(setup, natures))}
                 disabled={summoning}
               >
                 Rematch

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getPokemonList } from "../api/pokeapi";
 import { ITEM_DEFS, getItemDef } from "../battle/items";
 import type { PokemonDef, StatId } from "../battle/types";
-import { buildPokemonDef } from "../data/pokemon";
+import { buildPokemonDef, dexSprite, randomAiTeamIds } from "../data/pokemon";
 import type { MatchSetup } from "./Battle";
 import { TypeBadges } from "./badges";
 
@@ -15,10 +15,6 @@ const STAT_ROWS: { stat: StatId; label: string }[] = [
   { stat: "speed", label: "Spe" },
 ];
 
-function dexSprite(id: number): string {
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
-}
-
 interface DexEntry {
   id: number;
   name: string;
@@ -30,10 +26,9 @@ function dexIdFromUrl(url: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function randomAiId(exclude: number | null): number {
-  let id = 1 + Math.floor(Math.random() * 251);
-  if (id === exclude) id = ((id % 251) + 2) as number;
-  return id;
+interface TeamSlot {
+  def: PokemonDef;
+  item: string;
 }
 
 interface LobbyProps {
@@ -45,10 +40,10 @@ export function Lobby({ onStart }: LobbyProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedDef, setSelectedDef] = useState<PokemonDef | null>(null);
+  const [team, setTeam] = useState<TeamSlot[]>([]);
   const [level, setLevel] = useState(50);
-  const [item, setItem] = useState("none");
-  const [aiId, setAiId] = useState(() => randomAiId(null));
-  const [aiDef, setAiDef] = useState<PokemonDef | null>(null);
+  const [aiIds, setAiIds] = useState<number[]>(() => randomAiTeamIds(6));
+  const [aiTeam, setAiTeam] = useState<PokemonDef[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,10 +74,10 @@ export function Lobby({ onStart }: LobbyProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setAiDef(null);
-    buildPokemonDef(aiId)
-      .then((d) => {
-        if (!cancelled) setAiDef(d);
+    setAiTeam(null);
+    Promise.all(aiIds.map((id) => buildPokemonDef(id)))
+      .then((defs) => {
+        if (!cancelled) setAiTeam(defs);
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -90,7 +85,7 @@ export function Lobby({ onStart }: LobbyProps) {
     return () => {
       cancelled = true;
     };
-  }, [aiId]);
+  }, [aiIds]);
 
   const filtered = useMemo(() => {
     if (!list) return [];
@@ -101,13 +96,32 @@ export function Lobby({ onStart }: LobbyProps) {
     );
   }, [list, query]);
 
-  const itemDef = getItemDef(item);
+  const teamIds = team.map((s) => s.def.id);
+
+  const addToTeam = (def: PokemonDef) => {
+    setSelectedId(def.id);
+    setTeam((t) =>
+      t.length >= 6 || t.some((s) => s.def.id === def.id) ? t : [...t, { def, item: "none" }],
+    );
+  };
+
+  const removeFromTeam = (i: number) =>
+    setTeam((t) => t.filter((_, j) => j !== i));
+
+  const setSlotItem = (i: number, item: string) =>
+    setTeam((t) => t.map((s, j) => (j === i ? { ...s, item } : s)));
+
+  const ready = team.length === 6 && aiTeam !== null;
+  const lastItemDef =
+    team.length > 0 ? getItemDef(team[team.length - 1].item) : undefined;
 
   return (
     <div className="lobby">
       <header className="lobby-header">
         <h1>Pok&eacute;mon Battle Arena</h1>
-        <p>Pick your fighter, choose a loadout, and battle a random challenger.</p>
+        <p>
+          Build a team of six, load each one out, and battle a full enemy squad.
+        </p>
       </header>
 
       {error && <div className="fatal">Failed to load Pok&eacute;API data: {error}</div>}
@@ -127,7 +141,9 @@ export function Lobby({ onStart }: LobbyProps) {
             {filtered.map((p) => (
               <button
                 key={p.id}
-                className={`dex-card ${selectedId === p.id ? "selected" : ""}`}
+                className={`dex-card ${selectedId === p.id ? "selected" : ""}${
+                  teamIds.includes(p.id) ? " in-team" : ""
+                }`}
                 onClick={() => setSelectedId(p.id)}
               >
                 <img src={dexSprite(p.id)} alt={p.name} loading="lazy" />
@@ -146,7 +162,49 @@ export function Lobby({ onStart }: LobbyProps) {
           <h2>Battle setup</h2>
 
           <div className="setup-col">
-            <h3 className="side-label you">Your fighter</h3>
+            <h3 className="side-label you">
+              Your team <span className="team-count">{team.length}/6</span>
+              <span className="team-hint">first slot leads</span>
+            </h3>
+
+            <div className="team-roster">
+              {Array.from({ length: 6 }).map((_, i) => {
+                const s = team[i];
+                return (
+                  <div key={i} className={`team-slot${s ? " filled" : " empty"}`}>
+                    {s ? (
+                      <>
+                        <button
+                          className="slot-remove"
+                          title="Remove from team"
+                          onClick={() => removeFromTeam(i)}
+                        >
+                          &times;
+                        </button>
+                        <img src={dexSprite(s.def.id)} alt="" />
+                        <span className="slot-name">{s.def.displayName}</span>
+                        <TypeBadges types={s.def.types} />
+                        <select
+                          className="slot-item"
+                          value={s.item}
+                          onChange={(e) => setSlotItem(i, e.target.value)}
+                          title="Held item"
+                        >
+                          {ITEM_DEFS.map((it) => (
+                            <option key={it.name} value={it.name}>
+                              {it.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (
+                      <span className="slot-empty">Empty</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             {selectedDef ? (
               <div className="fighter-card">
                 <img className="artwork" src={selectedDef.artwork} alt={selectedDef.name} />
@@ -156,6 +214,17 @@ export function Lobby({ onStart }: LobbyProps) {
                     <span className="lvl">Lv{level}</span>
                   </div>
                   <TypeBadges types={selectedDef.types} />
+                  {teamIds.includes(selectedDef.id) ? (
+                    <span className="on-team-note">Already on your team</span>
+                  ) : (
+                    <button
+                      className="add-btn"
+                      disabled={team.length >= 6}
+                      onClick={() => addToTeam(selectedDef)}
+                    >
+                      {team.length >= 6 ? "Team is full" : "Add to team"}
+                    </button>
+                  )}
                   <div className="base-stats">
                     {STAT_ROWS.map((r) => (
                       <div key={r.stat} className="stat-row">
@@ -183,12 +252,14 @@ export function Lobby({ onStart }: LobbyProps) {
               </div>
             ) : (
               <div className="placeholder">
-                {selectedId !== null ? "Loading moveset..." : "Select a Pok&eacute;mon from the dex"}
+                {selectedId !== null
+                  ? "Loading moveset..."
+                  : "Click Pok\u00e9mon in the dex to add them to your team"}
               </div>
             )}
 
             <label className="field">
-              <span>Level</span>
+              <span>Team level</span>
               <input
                 type="range"
                 min={20}
@@ -198,59 +269,48 @@ export function Lobby({ onStart }: LobbyProps) {
               />
               <em>Lv {level}</em>
             </label>
-
-            <label className="field">
-              <span>Held item</span>
-              <select value={item} onChange={(e) => setItem(e.target.value)}>
-                {ITEM_DEFS.map((i) => (
-                  <option key={i.name} value={i.name}>
-                    {i.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {itemDef && <p className="item-desc">{itemDef.description}</p>}
           </div>
 
           <div className="vs-divider">VS</div>
 
           <div className="setup-col">
-            <h3 className="side-label foe">Challenger</h3>
-            {aiDef ? (
-              <div className="fighter-card">
-                <img className="artwork" src={aiDef.artwork} alt={aiDef.name} />
-                <div className="fighter-info">
-                  <div className="name-row">
-                    <strong>{aiDef.displayName}</strong>
-                    <span className="lvl">Lv{level}</span>
+            <h3 className="side-label foe">Challenger's team</h3>
+            {aiTeam ? (
+              <div className="ai-team-grid">
+                {aiTeam.map((d) => (
+                  <div key={d.id} className="ai-card">
+                    <img src={d.artwork} alt="" />
+                    <span className="ai-name">{d.displayName}</span>
+                    <TypeBadges types={d.types} />
                   </div>
-                  <TypeBadges types={aiDef.types} />
-                  <div className="mystery">
-                    Nature, ability &amp; item revealed in battle.
-                  </div>
-                </div>
+                ))}
               </div>
             ) : (
-              <div className="placeholder">Summoning challenger...</div>
+              <div className="placeholder">Summoning challenger team...</div>
             )}
             <button
               className="reroll"
-              onClick={() => setAiId(randomAiId(selectedId))}
-              disabled={aiDef === null}
+              onClick={() => setAiIds(randomAiTeamIds(6, teamIds))}
+              disabled={aiTeam === null}
             >
-              Reroll challenger
+              Reroll challenger team
             </button>
           </div>
 
           <button
             className="start-btn"
-            disabled={!selectedDef || !aiDef}
+            disabled={!ready}
             onClick={() =>
-              selectedDef && aiDef && onStart({ playerDef: selectedDef, aiDef, level, playerItem: item })
+              team.length === 6 &&
+              aiTeam &&
+              onStart({ playerTeam: team, aiTeam, level })
             }
           >
-            Start battle
+            {team.length < 6 ? `Pick ${6 - team.length} more to start` : "Start battle"}
           </button>
+          {lastItemDef && lastItemDef.name !== "none" && (
+            <p className="item-desc">Last picked item: {lastItemDef.description}</p>
+          )}
         </section>
       </div>
     </div>

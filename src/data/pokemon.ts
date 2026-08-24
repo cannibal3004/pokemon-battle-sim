@@ -81,6 +81,22 @@ const BLOCKED_MOVES = new Set([
   "lovely-kiss",
 ]);
 
+/** Small pixelated dex sprite used for lists, team panels and pickers. */
+export function dexSprite(id: number): string {
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
+}
+
+/** n unique random Kanto dex ids, optionally excluding a set of ids. */
+export function randomAiTeamIds(n: number, exclude: number[] = []): number[] {
+  const pool: number[] = [];
+  for (let id = 1; id <= 251; id++) if (!exclude.includes(id)) pool.push(id);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
+}
+
 export function displayName(name: string): string {
   return name
     .split("-")

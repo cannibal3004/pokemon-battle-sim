@@ -17,13 +17,23 @@ async function fetchJSON<T>(path: string): Promise<T> {
   const cached = cache.get(path);
   if (cached) return cached as Promise<T>;
   const promise = (async () => {
-    const res = await fetch(`${BASE}/${path}`);
-    if (!res.ok) {
-      cache.delete(path);
+    let lastStatus = 0;
+    // Team battles burst ~70 requests on load; retry politely on 429/5xx.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await fetch(`${BASE}/${path}`);
+      if (res.ok) return (await res.json()) as T;
+      lastStatus = res.status;
+      if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
       throw new Error(`PokeAPI error ${res.status} for /${path}`);
     }
-    return (await res.json()) as T;
-  })();
+    throw new Error(`PokeAPI error ${lastStatus} for /${path} (gave up retrying)`);
+  })().catch((e) => {
+    cache.delete(path);
+    throw e;
+  });
   cache.set(path, promise);
   return promise;
 }
