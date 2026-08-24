@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getPokemonList } from "../api/pokeapi";
 import { ITEM_DEFS, getItemDef } from "../battle/items";
 import type { PokemonDef, StatId } from "../battle/types";
-import { buildPokemonDef, dexSprite, randomAiTeamIds } from "../data/pokemon";
+import { buildPokemonDef, dexSprite, GENERATIONS, randomTeamIds } from "../data/pokemon";
 import type { MatchSetup } from "./Battle";
 import { TypeBadges } from "./badges";
 
@@ -42,19 +42,39 @@ export function Lobby({ onStart }: LobbyProps) {
   const [selectedDef, setSelectedDef] = useState<PokemonDef | null>(null);
   const [team, setTeam] = useState<TeamSlot[]>([]);
   const [level, setLevel] = useState(50);
-  const [aiIds, setAiIds] = useState<number[]>(() => randomAiTeamIds(6));
+  const [gen, setGen] = useState(0);
+  const [aiIds, setAiIds] = useState<number[] | null>(null);
   const [aiTeam, setAiTeam] = useState<PokemonDef[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const teamIdsRef = useRef<number[]>([]);
 
   useEffect(() => {
-    getPokemonList(151, 0)
-      .then((r) =>
-        setList(
-          r.results.map((p) => ({ id: dexIdFromUrl(p.url), name: p.name })),
-        ),
-      )
-      .catch((e) => setError(String(e)));
-  }, []);
+    teamIdsRef.current = team.map((s) => s.def.id);
+  }, [team]);
+
+  // Load the dex slice for the selected generation.
+  useEffect(() => {
+    const g = GENERATIONS[gen];
+    let cancelled = false;
+    setList(null);
+    getPokemonList(g.end - g.start + 1, g.start - 1)
+      .then((r) => {
+        if (!cancelled)
+          setList(r.results.map((p) => ({ id: dexIdFromUrl(p.url), name: p.name })));
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gen]);
+
+  // Roll a challenger team from the same generation (and on mount).
+  useEffect(() => {
+    const g = GENERATIONS[gen];
+    setAiIds(randomTeamIds(6, g.start, g.end, teamIdsRef.current));
+  }, [gen]);
 
   useEffect(() => {
     if (selectedId === null) return;
@@ -73,6 +93,7 @@ export function Lobby({ onStart }: LobbyProps) {
   }, [selectedId]);
 
   useEffect(() => {
+    if (aiIds === null) return;
     let cancelled = false;
     setAiTeam(null);
     Promise.all(aiIds.map((id) => buildPokemonDef(id)))
@@ -129,10 +150,20 @@ export function Lobby({ onStart }: LobbyProps) {
       <div className="lobby-grid">
         <section className="panel picker">
           <h2>Choose your Pok&eacute;mon</h2>
+          <div className="field gen-field">
+            <span>Generation</span>
+            <select value={gen} onChange={(e) => setGen(Number(e.target.value))}>
+              {GENERATIONS.map((g, i) => (
+                <option key={g.id} value={i}>
+                  {g.name} &middot; {g.region}
+                </option>
+              ))}
+            </select>
+          </div>
           <input
             className="search"
             type="text"
-            placeholder="Search by name or # (Kanto dex)"
+            placeholder="Search by name or #"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -290,7 +321,10 @@ export function Lobby({ onStart }: LobbyProps) {
             )}
             <button
               className="reroll"
-              onClick={() => setAiIds(randomAiTeamIds(6, teamIds))}
+              onClick={() => {
+                const g = GENERATIONS[gen];
+                setAiIds(randomTeamIds(6, g.start, g.end, teamIds));
+              }}
               disabled={aiTeam === null}
             >
               Reroll challenger team
@@ -303,7 +337,7 @@ export function Lobby({ onStart }: LobbyProps) {
             onClick={() =>
               team.length === 6 &&
               aiTeam &&
-              onStart({ playerTeam: team, aiTeam, level })
+              onStart({ playerTeam: team, aiTeam, level, gen })
             }
           >
             {team.length < 6 ? `Pick ${6 - team.length} more to start` : "Start battle"}

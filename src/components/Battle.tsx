@@ -5,9 +5,10 @@ import {
   buildPokemonDef,
   createCombatant,
   dexSprite,
+  GENERATIONS,
   pickAbility,
-  randomAiTeamIds,
   randomNature,
+  randomTeamIds,
 } from "../data/pokemon";
 import { useBattle, type TeamMemberView, type Teams } from "../hooks/useBattle";
 import { HpBar } from "./HpBar";
@@ -17,6 +18,7 @@ export interface MatchSetup {
   playerTeam: { def: PokemonDef; item: string }[];
   aiTeam: PokemonDef[];
   level: number;
+  gen: number;
 }
 
 interface BattleScreenProps {
@@ -170,7 +172,8 @@ export function BattleScreen({ setup: initialSetup, chart, natures, onExit }: Ba
     if (summoning) return;
     setSummoning(true);
     try {
-      const ids = randomAiTeamIds(6, setup.playerTeam.map((m) => m.def.id));
+      const g = GENERATIONS[setup.gen];
+      const ids = randomTeamIds(6, g.start, g.end, setup.playerTeam.map((m) => m.def.id));
       const aiTeamDefs = await Promise.all(ids.map(buildPokemonDef));
       const next = { ...setup, aiTeam: aiTeamDefs };
       setSetup(next);

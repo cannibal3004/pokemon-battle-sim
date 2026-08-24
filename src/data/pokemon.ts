@@ -86,10 +86,36 @@ export function dexSprite(id: number): string {
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 }
 
-/** n unique random Kanto dex ids, optionally excluding a set of ids. */
-export function randomAiTeamIds(n: number, exclude: number[] = []): number[] {
+export interface Generation {
+  id: number;
+  name: string;
+  region: string;
+  start: number;
+  end: number;
+}
+
+/** National dex ranges per generation (PokeAPI ids are the national dex number). */
+export const GENERATIONS: Generation[] = [
+  { id: 1, name: "Gen 1", region: "Kanto", start: 1, end: 151 },
+  { id: 2, name: "Gen 2", region: "Johto", start: 152, end: 251 },
+  { id: 3, name: "Gen 3", region: "Hoenn", start: 252, end: 386 },
+  { id: 4, name: "Gen 4", region: "Sinnoh", start: 387, end: 493 },
+  { id: 5, name: "Gen 5", region: "Unova", start: 494, end: 649 },
+  { id: 6, name: "Gen 6", region: "Kalos", start: 650, end: 721 },
+  { id: 7, name: "Gen 7", region: "Alola", start: 722, end: 809 },
+  { id: 8, name: "Gen 8", region: "Galar", start: 810, end: 905 },
+  { id: 9, name: "Gen 9", region: "Paldea", start: 906, end: 1025 },
+];
+
+/** n unique random dex ids within [start, end], optionally excluding a set of ids. */
+export function randomTeamIds(
+  n: number,
+  start: number,
+  end: number,
+  exclude: number[] = [],
+): number[] {
   const pool: number[] = [];
-  for (let id = 1; id <= 251; id++) if (!exclude.includes(id)) pool.push(id);
+  for (let id = start; id <= end; id++) if (!exclude.includes(id)) pool.push(id);
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];

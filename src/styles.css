@@ -126,6 +126,10 @@ button {
   font-size: 18px;
 }
 
+.gen-field {
+  margin-bottom: 10px;
+}
+
 .search {
   width: 100%;
   padding: 10px 12px;
