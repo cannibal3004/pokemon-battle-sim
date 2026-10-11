@@ -36,6 +36,8 @@ const STATUS_TEXT: Record<Exclude<StatusId, "none" | "flinch">, string> = {
   burn: "burned",
   paralysis: "paralyzed",
   poison: "poisoned",
+  sleep: "fast asleep",
+  freeze: "frozen solid",
 };
 
 export class Battle {
@@ -262,6 +264,47 @@ export class Battle {
       return evts;
     }
 
+    if (actor.status === "sleep") {
+      if (actor.sleepTurns > 0) {
+        actor.sleepTurns--;
+        evts.push({
+          kind: "status",
+          side,
+          status: "sleep",
+          text: `${actor.def.displayName} is fast asleep!`,
+        });
+        return evts;
+      }
+      // From Generation II onward a Pokemon wakes and attacks on the same turn.
+      actor.status = "none";
+      evts.push({
+        kind: "status",
+        side,
+        status: "none",
+        text: `${actor.def.displayName} woke up!`,
+      });
+    }
+
+    if (actor.status === "freeze") {
+      // 20% chance to thaw each turn it would act (Generation III onward).
+      if (Math.random() >= 0.2) {
+        evts.push({
+          kind: "status",
+          side,
+          status: "freeze",
+          text: `${actor.def.displayName} is frozen solid!`,
+        });
+        return evts;
+      }
+      actor.status = "none";
+      evts.push({
+        kind: "status",
+        side,
+        status: "none",
+        text: `${actor.def.displayName} thawed out!`,
+      });
+    }
+
     if (actor.status === "paralysis" && Math.random() < 0.25) {
       evts.push({
         kind: "paralyzed",
@@ -372,6 +415,8 @@ export class Battle {
       text,
     });
 
+
+
     // Resolve the target's faint before anything that can KO the user: if recoil
     // swallowed this, the battle would deadlock on a fainted active with no
     // switch prompt.
@@ -462,40 +507,59 @@ export class Battle {
     else applyChanges(target, mv.targetChanges);
 
     if (mv.ailment !== "none" && Math.random() * 100 < mv.ailmentChance) {
-      if (mv.ailment === "flinch") {
-        target.flinched = true;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: "flinch",
-          text: `${target.def.displayName} flinched!`,
-        });
-      } else if (target.status === "none") {
-        target.status = mv.ailment;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: mv.ailment,
-          text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
-      } else {
-        // A Pokemon can only hold one non-volatile status: a second, different
-        // one fails rather than silently replacing the first.
-        if (target.status !== mv.ailment) {
-          evts.push({
-            kind: "no-effect",
-            side: target.side,
-            text: `But it failed to affect ${target.def.displayName}!`,
-          });
-          return;
-        }
-        evts.push({
-          kind: "no-effect",
-          side: target.side,
-          text: `${target.def.displayName} is already ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
-      }
+      this.applyAilment(target, mv.ailment, evts);
     }
+  }
+
+  /**
+   * Inflict an ailment, honouring the one-status-per-Pokemon rule. Shared by
+   * status moves and the secondary effect of damaging moves (Ice Beam freezing,
+   * Flamethrower burning, Thunder paralyzing), which previously did nothing.
+   */
+  private applyAilment(
+    target: Combatant,
+    ailment: StatusId,
+    evts: BattleEvent[],
+  ) {
+    if (ailment === "none") return;
+
+    if (ailment === "flinch") {
+      target.flinched = true;
+      evts.push({
+        kind: "status",
+        side: target.side,
+        status: "flinch",
+        text: `${target.def.displayName} flinched!`,
+      });
+      return;
+    }
+
+    if (target.status !== "none") {
+      // A Pokemon can only hold one non-volatile status: a second, different
+      // one fails rather than silently replacing the first.
+      evts.push({
+        kind: "no-effect",
+        side: target.side,
+        text:
+          target.status === ailment
+            ? `${target.def.displayName} is already ${STATUS_TEXT[ailment as Exclude<StatusId, "none" | "flinch">]}!`
+            : `But it failed to affect ${target.def.displayName}!`,
+      });
+      return;
+    }
+
+    target.status = ailment;
+    if (ailment === "sleep") {
+      // Counter of 2-4 means the target skips 1-3 turns before waking, matching
+      // the modern games' "1 to 3 turns" and PokeAPI's own min/max_turns.
+      target.sleepTurns = 2 + Math.floor(Math.random() * 3);
+    }
+    evts.push({
+      kind: "status",
+      side: target.side,
+      status: ailment,
+      text: `${target.def.displayName} was ${STATUS_TEXT[ailment as Exclude<StatusId, "none" | "flinch">]}!`,
+    });
   }
 
   private endOfTurn(c: Combatant, side: Side): BattleEvent[] {

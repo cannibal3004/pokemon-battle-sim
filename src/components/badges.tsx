@@ -46,6 +46,8 @@ const STATUS_META: Record<Exclude<StatusId, "none">, { code: string; color: stri
   burn: { code: "BRN", color: "#f08a3c" },
   paralysis: { code: "PAR", color: "#f7d02c" },
   poison: { code: "PSN", color: "#a33ea1" },
+  sleep: { code: "SLP", color: "#8b8fa8" },
+  freeze: { code: "FRZ", color: "#96d9d6" },
   flinch: { code: "FLN", color: "#8ab4d8" },
 };
 

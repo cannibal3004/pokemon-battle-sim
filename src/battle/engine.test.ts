@@ -258,3 +258,67 @@ describe("fainting", () => {
     expect(b.runTurn(0, 0)).toHaveLength(0);
   });
 });
+
+describe("sleep", () => {
+  const mkAsleep = (turns: number) =>
+    combatant({ name: "Sleeper", side: "player", status: "sleep", sleepTurns: turns,
+      moves: [tackle], stats: { speed: 300 } });
+  const idle = () => combatant({ name: "F", side: "ai", moves: [], stats: { speed: 10 } });
+
+  it("skips turns while the counter lasts, then wakes and attacks", () => {
+    const sleeper = mkAsleep(2);
+    const foe = idle();
+    const b = makeBattle([sleeper], [foe]);
+
+    expect(textOf(b.runTurn(0, 0)[1])).toContain("fast asleep");
+    expect(sleeper.sleepTurns).toBe(1);
+    expect(foe.hp).toBe(foe.maxHp);
+
+    b.runTurn(0, 0);
+    expect(sleeper.sleepTurns).toBe(0);
+    expect(foe.hp).toBe(foe.maxHp);
+
+    // Counter exhausted: wakes and attacks on the same turn (Gen II onward).
+    withRandom([0.999, 0], () => b.runTurn(0, 0));
+    expect(sleeper.status).toBe("none");
+    expect(foe.hp).toBeLessThan(foe.maxHp);
+  });
+
+  it("does not wake early and keeps the status until the counter runs out", () => {
+    const sleeper = mkAsleep(3);
+    const b = makeBattle([sleeper], [idle()]);
+    b.runTurn(0, 0);
+    expect(sleeper.status).toBe("sleep");
+    expect(sleeper.sleepTurns).toBe(2);
+  });
+});
+
+describe("freeze", () => {
+  const frozen = () =>
+    combatant({ name: "Icy", side: "player", status: "freeze", moves: [tackle],
+      stats: { speed: 300 } });
+  const idle = () => combatant({ name: "F", side: "ai", moves: [], stats: { speed: 10 } });
+
+  it("blocks the turn when the thaw roll fails", () => {
+    const mon = frozen();
+    const foe = idle();
+    const b = makeBattle([mon], [foe]);
+    // 0.999 >= 0.2 -> stays frozen.
+    const events = withRandom([0.999], () => b.runTurn(0, 0));
+    expect(mon.status).toBe("freeze");
+    expect(foe.hp).toBe(foe.maxHp);
+    expect(textOf(events[1])).toContain("frozen solid");
+  });
+
+  it("thaws on a successful roll and attacks that same turn", () => {
+    const mon = frozen();
+    const foe = idle();
+    const b = makeBattle([mon], [foe]);
+    // 0.1 < 0.2 -> thaws; then crit + damage rolls.
+    const events = withRandom([0.1, 0.999, 0], () => b.runTurn(0, 0));
+    expect(mon.status).toBe("none");
+    expect(foe.hp).toBeLessThan(foe.maxHp);
+    expect(textOf(events[1])).toContain("thawed out");
+  });
+});
+

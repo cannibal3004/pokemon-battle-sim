@@ -106,6 +106,7 @@ export function combatant(over: CombatantOverrides): Combatant {
     sturdyUsed: false,
     multiscaleUsed: false,
     flinched: false,
+    sleepTurns: 0,
     ...rest,
     stats,
     maxHp: stats.hp,

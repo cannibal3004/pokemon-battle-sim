@@ -43,7 +43,14 @@ export const STAGE_STATS: StatStage[] = [
 
 export type DamageClass = "physical" | "special" | "status";
 
-export type StatusId = "none" | "burn" | "paralysis" | "poison" | "flinch";
+export type StatusId =
+  | "none"
+  | "burn"
+  | "paralysis"
+  | "poison"
+  | "sleep"
+  | "freeze"
+  | "flinch";
 
 export interface StatStageChange {
   stat: StatStage;
@@ -109,6 +116,8 @@ export interface Combatant {
   sturdyUsed: boolean;
   multiscaleUsed: boolean;
   flinched: boolean;
+  /** Turns of sleep left; only meaningful while status === "sleep". */
+  sleepTurns: number;
 }
 
 export type Side = "player" | "ai";

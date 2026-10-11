@@ -33,6 +33,10 @@ const AILMENT_KEY: Record<string, StatusId> = {
   burn: "burn",
   paralysis: "paralysis",
   poison: "poison",
+  sleep: "sleep",
+  // PokeAPI has used both spellings for the frozen ailment across versions.
+  freeze: "freeze",
+  frozen: "freeze",
 };
 
 const SELF_TARGETS = [
@@ -384,6 +388,7 @@ export function createCombatant(
     sturdyUsed: false,
     multiscaleUsed: false,
     flinched: false,
+    sleepTurns: 0,
   };
 }
 
