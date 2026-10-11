@@ -1447,3 +1447,30 @@ button {
 .log::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- Sound toggle ------------------------------------------------------- */
+.sound-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sound-toggle:hover {
+  border-color: var(--accent);
+}
+
+.sound-toggle.muted {
+  color: var(--text-dim);
+}
+
