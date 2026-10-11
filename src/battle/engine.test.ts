@@ -23,6 +23,27 @@ describe("choice item lock", () => {
     b.runTurn(0, 0);
     expect(a.lockedMove).toBe(1);
   });
+  it("clears the lock when the Pokemon switches out and returns", () => {
+    const a = combatant({ name: "H", side: "player", item: "choice_band", moves: [tackle, scratch] });
+    const bench = combatant({ name: "B", side: "player", moves: [tackle] });
+    const b = makeBattle([a, bench], [combatant({ name: "F", side: "ai", moves: [tackle] })]);
+    b.runTurn(1, 0);
+    expect(a.lockedMove).toBe(1);
+    b.voluntarySwitch(1);
+    b.voluntarySwitch(0);
+    expect(a.lockedMove).toBeNull();
+    b.runTurn(0, 0);
+    expect(a.lockedMove).toBe(0);
+  });
+  it("clears the lock when a locked Pokemon leaves the field", () => {
+    const foe = combatant({ name: "AF", side: "ai", item: "choice_specs", moves: [tackle, scratch] });
+    const foe2 = combatant({ name: "AF2", side: "ai", moves: [tackle] });
+    const b = makeBattle([combatant({ name: "P", side: "player", moves: [tackle] })], [foe, foe2]);
+    b.runTurn(0, 1);
+    expect(foe.lockedMove).toBe(1);
+    b.sendIn("ai", 1);
+    expect(foe.lockedMove).toBeNull();
+  });
 });
 describe("one-shot survival effects", () => {
   it("Multiscale actually halves the incoming hit", () => {

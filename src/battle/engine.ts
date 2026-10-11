@@ -169,11 +169,16 @@ export class Battle {
     return best === -1 ? 0 : best;
   }
 
-  /** Swap the active; stat stages reset when a Pokemon leaves the field (real-game rule). */
+  /**
+   * Swap the active. Everything scoped to "until this Pokemon leaves the field"
+   * resets here: stat stages and the Choice-item move lock.
+   */
   private setActive(side: Side, index: number) {
     const cur = side === "player" ? this.playerActive : this.aiActive;
     if (cur === index) return;
-    this.teams[side][cur].stages = emptyStages();
+    const leaving = this.teams[side][cur];
+    leaving.stages = emptyStages();
+    leaving.lockedMove = null;
     if (side === "player") this.playerActive = index;
     else this.aiActive = index;
   }
