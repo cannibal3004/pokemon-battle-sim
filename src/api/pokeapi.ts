@@ -8,6 +8,7 @@ import type {
   PokemonSpeciesAPI,
   TypeAPI,
 } from "./types";
+import { getCached, setCached } from "../data/persistentCache";
 
 const BASE = "https://pokeapi.co/api/v2";
 
@@ -16,12 +17,26 @@ const cache = new Map<string, Promise<unknown>>();
 async function fetchJSON<T>(path: string): Promise<T> {
   const cached = cache.get(path);
   if (cached) return cached as Promise<T>;
+
+  // Second-level cache: raw JSON survives reloads, so revisiting a generation
+  // costs nothing. Pokemon/move payloads are immutable by id.
+  const persisted = getCached<T>(path);
+  if (persisted !== null) {
+    const done = Promise.resolve(persisted);
+    cache.set(path, done);
+    return done;
+  }
+
   const promise = (async () => {
     let lastStatus = 0;
     // Team battles burst ~70 requests on load; retry politely on 429/5xx.
     for (let attempt = 0; attempt < 5; attempt++) {
       const res = await fetch(`${BASE}/${path}`);
-      if (res.ok) return (await res.json()) as T;
+      if (res.ok) {
+        const data = (await res.json()) as T;
+        setCached(path, data);
+        return data;
+      }
       lastStatus = res.status;
       if ((res.status === 429 || res.status >= 500) && attempt < 4) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
