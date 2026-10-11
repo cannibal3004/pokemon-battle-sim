@@ -288,7 +288,11 @@ export async function buildMoveset(api: PokemonAPI): Promise<MoveDef[]> {
 
   const statusScore = (m: MoveDef) =>
     (m.ailment !== "none" ? 100 : 0) +
-    (m.ailment === "burn" || m.ailment === "paralysis" || m.ailment === "poison" ? 10 : 0) +
+    // Sleep and freeze used to be dropped at parse time, so only the remaining
+    // three statuses earned this bonus. Now that all five are implemented they
+    // rank equally: the +10 here was silently preferring Stun Spore over
+    // Hypnosis purely as a leftover of that limitation.
+    (m.ailment !== "none" && m.ailment !== "flinch" ? 10 : 0) +
     (m.selfChanges.some((c) => c.change > 0) ? 5 : 0) +
     (m.targetChanges.some((c) => c.change < 0) ? 5 : 0);
   for (const m of [...status].sort((a, b) => statusScore(b) - statusScore(a))) {
