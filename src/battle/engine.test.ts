@@ -322,3 +322,42 @@ describe("freeze", () => {
   });
 });
 
+
+describe("damaging-move secondary effects", () => {
+  // Before this feature, applyDamageMove ignored mv.ailment entirely: Ice Beam
+  // could not freeze and Flamethrower could not burn.
+  const iceBeam = move({
+    name: "ice-beam", power: 90, class: "special", type: "ice",
+    ailment: "freeze", ailmentChance: 10,
+  });
+
+  const mkPair = () => {
+    const atk = combatant({ name: "A", side: "player", moves: [iceBeam], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    return { atk, def, b: makeBattle([atk], [def]) };
+  };
+
+  it("inflicts the secondary status when the roll succeeds", () => {
+    const { def, b } = mkPair();
+    withRandom([0.999, 0, 0.05], () => b.runTurn(0, 0));
+    expect(def.status).toBe("freeze");
+  });
+
+  it("respects the ailment chance when the roll fails", () => {
+    const { def, b } = mkPair();
+    withRandom([0.999, 0, 0.5], () => b.runTurn(0, 0));
+    expect(def.status).toBe("none");
+  });
+
+  it("does not replace an existing status, and stays silent about it", () => {
+    // A secondary effect that cannot apply is not announced: the move just does
+    // its damage. Only status moves report "But it failed to affect ...!".
+    const { def, b } = mkPair();
+    def.status = "burn";
+    const events = withRandom([0.999, 0, 0.05], () => b.runTurn(0, 0));
+    expect(def.status).toBe("burn");
+    expect(events.some((e) => e.kind === "status")).toBe(false);
+    expect(events.some((e) => e.kind === "no-effect")).toBe(false);
+    expect(def.hp).toBeLessThan(def.maxHp);
+  });
+});

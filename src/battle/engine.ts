@@ -415,6 +415,18 @@ export class Battle {
       text,
     });
 
+    // Secondary effect (Ice Beam's freeze, Flamethrower's burn, Thunder's
+    // paralysis). Damaging moves applied none of these before.
+    if (
+      mv.ailment !== "none" &&
+      target.hp > 0 &&
+      target.status === "none" &&
+      Math.random() * 100 < mv.ailmentChance
+    ) {
+      this.applyAilment(target, mv.ailment, evts);
+    }
+
+
 
 
     // Resolve the target's faint before anything that can KO the user: if recoil
