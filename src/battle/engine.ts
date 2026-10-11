@@ -372,6 +372,28 @@ export class Battle {
       text,
     });
 
+    // Resolve the target's faint before anything that can KO the user: if recoil
+    // swallowed this, the battle would deadlock on a fainted active with no
+    // switch prompt.
+    if (target.hp <= 0) this.faint(target, evts);
+
+    // Drain happens as part of the attack, so it is applied before recoil --
+    // otherwise recoil could faint the user and drain would then heal a fainted
+    // Pokemon back above 0 HP.
+    if (mv.drainPct > 0 && actor.hp > 0) {
+      const heal = Math.min(actor.maxHp - actor.hp, Math.floor((dmg * mv.drainPct) / 100));
+      if (heal > 0) {
+        actor.hp += heal;
+        evts.push({
+          kind: "heal",
+          side: actor.side,
+          amount: heal,
+          maxHp: actor.maxHp,
+          text: `${actor.def.displayName} drained ${heal} HP!`,
+        });
+      }
+    }
+
     // Recoil is a fraction of the damage dealt; Life Orb is a flat 10% of the
     // user's max HP (rounded down, minimum 1) and is blocked by Magic Guard.
     // Either can legitimately faint the user, which goes through the faint path.
@@ -379,7 +401,7 @@ export class Battle {
     if (mv.recoilPct > 0) recoil += Math.floor((dmg * mv.recoilPct) / 100);
     const lifeOrb = actor.item === "life_orb" && !isMagicGuard(actor);
     if (lifeOrb) recoil += Math.max(1, Math.floor(actor.maxHp / 10));
-    if (recoil > 0) {
+    if (recoil > 0 && actor.hp > 0) {
       const rd = Math.min(actor.hp, recoil);
       actor.hp -= rd;
       evts.push({
@@ -396,27 +418,8 @@ export class Battle {
             ? `${actor.def.displayName} lost some of its HP!`
             : `${actor.def.displayName} took recoil damage.`,
       });
-      if (actor.hp <= 0) {
-        this.faint(actor, evts);
-        return;
-      }
+      if (actor.hp <= 0) this.faint(actor, evts);
     }
-
-    if (mv.drainPct > 0) {
-      const heal = Math.min(actor.maxHp - actor.hp, Math.floor((dmg * mv.drainPct) / 100));
-      if (heal > 0) {
-        actor.hp += heal;
-        evts.push({
-          kind: "heal",
-          side: actor.side,
-          amount: heal,
-          maxHp: actor.maxHp,
-          text: `${actor.def.displayName} drained ${heal} HP!`,
-        });
-      }
-    }
-
-    if (target.hp <= 0) this.faint(target, evts);
   }
 
   private applyStatusMove(

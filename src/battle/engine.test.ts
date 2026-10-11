@@ -185,6 +185,34 @@ describe("Life Orb", () => {
     expect(amountOf(recoil[0])).toBe(20);
   });
 });
+describe("double KO", () => {
+  it("processes the target's faint when recoil also KOs the user", () => {
+    // Regression: the recoil path returned early, swallowing the target's faint
+    // and deadlocking the battle on a 0 HP enemy with no switch prompt.
+    const orb = combatant({ name: "Orb", side: "player", item: "life_orb", hp: 1,
+      moves: [nuke], stats: { speed: 300 } });
+    const bench = combatant({ name: "Bench", side: "player", moves: [tackle] });
+    const foe = combatant({ name: "Foe", side: "ai", moves: [tackle] });
+    const b = makeBattle([orb, bench], [foe]);
+    const events = b.runTurn(0, 0);
+    expect(foe.hp).toBe(0);
+    expect(events.some((e) => e.kind === "faint" && e.side === "ai")).toBe(true);
+    expect(orb.hp).toBe(0);
+    expect(b.over).toBe("player");
+  });
+  it("drains before recoil so a surviving user is healed first", () => {
+    // Drain is part of the attack; running recoil first would faint the user and
+    // then either skip the heal or heal a fainted Pokemon back above 0.
+    const drain = move({ name: "drain", power: 80, drainPct: 50 });
+    const user = combatant({ name: "Drain", side: "player", item: "life_orb", hp: 10,
+      moves: [drain], stats: { speed: 300 } });
+    const foe = combatant({ name: "Foe", side: "ai", moves: [] });
+    const b = makeBattle([user], [foe]);
+    const events = b.runTurn(0, 0);
+    expect(user.hp).toBeGreaterThan(0);
+    expect(events.some((e) => e.kind === "faint" && e.side === "player")).toBe(false);
+  });
+});
 describe("switching", () => {
   it("resets the stat stages of the Pokemon that leaves the field", () => {
     const a = combatant({ name: "Setup", side: "player", moves: [recover, tackle] });
