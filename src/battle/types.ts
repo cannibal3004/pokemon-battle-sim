@@ -76,6 +76,9 @@ export interface MoveDef {
   recoilPct: number;
   drainPct: number;
   targetsSelf: boolean;
+  /** Strikes per use. Multi-hit moves report 2-5 from PokeAPI metadata. */
+  minHits: number;
+  maxHits: number;
 }
 
 export interface CombatantMove {

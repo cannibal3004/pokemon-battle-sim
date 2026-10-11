@@ -227,6 +227,8 @@ function toMoveDef(move: MoveAPI): MoveDef | null {
     ailmentChance,
     selfChanges,
     targetChanges,
+    minHits: meta?.min_hits ?? 1,
+    maxHits: meta?.max_hits ?? meta?.min_hits ?? 1,
     recoilPct: Math.max(
       Math.abs(meta?.recoil ?? 0),
       (meta?.drain ?? 0) < 0 ? Math.abs(meta.drain) : 0,

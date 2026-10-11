@@ -361,3 +361,56 @@ describe("damaging-move secondary effects", () => {
     expect(def.hp).toBeLessThan(def.maxHp);
   });
 });
+
+describe("multi-hit moves", () => {
+  const bulletSeed = move({
+    name: "bullet-seed", power: 25, class: "physical", type: "grass",
+    minHits: 2, maxHits: 5,
+  });
+
+  const mkPair = () => {
+    const atk = combatant({ name: "A", side: "player", moves: [bulletSeed], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    return { def, b: makeBattle([atk], [def]) };
+  };
+
+  it("rolls the hit count within min..max and lands that many hits", () => {
+    const { def, b } = mkPair();
+    // crit(no), factor, hitRoll 0 -> 2 hits, then hit 2: crit(no), factor.
+    const events = withRandom([0.999, 0, 0, 0.999, 0], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(2);
+    expect(textOf(hits[1])).toContain("(2/2)");
+    expect(def.hp).toBeLessThan(def.maxHp);
+  });
+
+  it("rolls the maximum when the hit roll is at the top", () => {
+    const { b } = mkPair();
+    // hitRoll 0.999 -> 5 hits: damage rolls needed for hits 2-5 as well.
+    const events = withRandom(
+      [0.999, 0, 0.999, 0.999, 0, 0.999, 0, 0.999, 0, 0.999, 0],
+      () => b.runTurn(0, 0),
+    );
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(5);
+  });
+
+  it("stops hitting once the target faints", () => {
+    const { def, b } = mkPair();
+    def.hp = 1;
+    const events = withRandom([0.999, 0, 0.999], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(1);
+    expect(def.hp).toBe(0);
+  });
+
+  it("a single-hit move is unaffected", () => {
+    const atk = combatant({ name: "A", side: "player", moves: [tackle], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    const b = makeBattle([atk], [def]);
+    const events = withRandom([0.999, 0], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(1);
+    expect(textOf(hits[0])).not.toContain("(1/1)");
+  });
+});
