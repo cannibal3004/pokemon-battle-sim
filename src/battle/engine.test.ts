@@ -46,6 +46,40 @@ describe("choice item lock", () => {
   });
 });
 describe("one-shot survival effects", () => {
+  it("Sturdy triggers again after switching out and back in", () => {
+    const rocky = combatant({ name: "Rocky", side: "ai", ability: "sturdy" });
+    const bench = combatant({ name: "B", side: "ai", moves: [tackle] });
+    const p = combatant({ name: "P", side: "player", moves: [nuke, tackle] });
+    const b = makeBattle([p], [rocky, bench]);
+    b.runTurn(0, 0);
+    expect(rocky.hp).toBe(1);
+    expect(rocky.sturdyUsed).toBe(true);
+
+    rocky.hp = 200;
+    b.sendIn("ai", 1);
+    expect(rocky.sturdyUsed).toBe(false);
+    b.sendIn("ai", 0);
+    b.runTurn(0, 0);
+    expect(rocky.hp).toBe(1);
+  });
+  it("Multiscale halves the first hit after each entry, not once per battle", () => {
+    const draco = mkFoe("D", "multiscale");
+    const bench = mkFoe("B", "multiscale");
+    const p = combatant({ name: "P", side: "player", moves: [tackle], stats: { speed: 200 } });
+    const b = makeBattle([p], [draco, bench]);
+    const roll = [0.999, 0];
+
+    withRandom(roll, () => b.runTurn(0, 0));
+    const firstHit = 200 - draco.hp;
+    expect(draco.multiscaleUsed).toBe(true);
+
+    draco.hp = 200;
+    b.sendIn("ai", 1);
+    expect(draco.multiscaleUsed).toBe(false);
+    b.sendIn("ai", 0);
+    withRandom(roll, () => b.runTurn(0, 0));
+    expect(200 - draco.hp).toBe(firstHit);
+  });
   it("Multiscale actually halves the incoming hit", () => {
     const shielded = mkFoe("S", "multiscale");
     const plain = mkFoe("P", "");

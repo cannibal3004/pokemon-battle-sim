@@ -171,7 +171,9 @@ export class Battle {
 
   /**
    * Swap the active. Everything scoped to "until this Pokemon leaves the field"
-   * resets here: stat stages and the Choice-item move lock.
+   * resets here: stat stages, the Choice-item move lock, and the once-per-entry
+   * Sturdy/Multiscale flags. Focus Sash stays spent (a consumed item does not
+   * come back), and flinch is cleared as a matter of hygiene.
    */
   private setActive(side: Side, index: number) {
     const cur = side === "player" ? this.playerActive : this.aiActive;
@@ -179,6 +181,9 @@ export class Battle {
     const leaving = this.teams[side][cur];
     leaving.stages = emptyStages();
     leaving.lockedMove = null;
+    leaving.sturdyUsed = false;
+    leaving.multiscaleUsed = false;
+    leaving.flinched = false;
     if (side === "player") this.playerActive = index;
     else this.aiActive = index;
   }
