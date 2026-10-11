@@ -459,15 +459,17 @@ export class Battle {
           status: mv.ailment,
           text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
         });
-      } else if (target.status !== mv.ailment) {
-        target.status = mv.ailment;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: mv.ailment,
-          text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
       } else {
+        // A Pokemon can only hold one non-volatile status: a second, different
+        // one fails rather than silently replacing the first.
+        if (target.status !== mv.ailment) {
+          evts.push({
+            kind: "no-effect",
+            side: target.side,
+            text: `But it failed to affect ${target.def.displayName}!`,
+          });
+          return;
+        }
         evts.push({
           kind: "no-effect",
           side: target.side,

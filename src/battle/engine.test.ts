@@ -108,6 +108,14 @@ describe("one-shot survival effects", () => {
   });
 });
 describe("status moves", () => {
+  it("does not overwrite an existing non-volatile status", () => {
+    const user = combatant({ name: "Zap", side: "player", moves: [thunderWave] });
+    const foe = combatant({ name: "F", side: "ai", status: "burn", moves: [tackle] });
+    const b = makeBattle([user], [foe]);
+    const events = b.runTurn(0, 0);
+    expect(foe.status).toBe("burn");
+    expect(events.some((e) => e.kind === "no-effect")).toBe(true);
+  });
   it("applies a status to a healthy target", () => {
     const user = combatant({ name: "Zap", side: "player", moves: [thunderWave] });
     const foe = combatant({ name: "F", side: "ai", moves: [tackle] });
