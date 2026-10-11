@@ -108,6 +108,36 @@ export function Lobby({ onStart }: LobbyProps) {
     };
   }, [aiIds]);
 
+  // The challenger team is rolled when the generation changes, so a species the
+  // player picks afterwards can still collide with it. Repair any collision by
+  // swapping the offending challenger slot for a species neither side holds.
+  const repairingRef = useRef(false);
+  useEffect(() => {
+    if (!aiTeam || team.length === 0 || repairingRef.current) return;
+    const playerIds = new Set(team.map((s) => s.def.id));
+    const clash = aiTeam.findIndex((d) => playerIds.has(d.id));
+    if (clash === -1) return;
+
+    repairingRef.current = true;
+    const g = GENERATIONS[gen];
+    const exclude = [...playerIds, ...aiTeam.map((d) => d.id)];
+    const candidates = randomTeamIds(6, g.start, g.end, exclude);
+
+    buildPokemonDef(candidates[0])
+      .then((d) => {
+        setAiTeam((cur) => {
+          if (!cur) return cur;
+          const next = [...cur];
+          next[clash] = d;
+          return next;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        repairingRef.current = false;
+      });
+  }, [team, aiTeam, gen]);
+
   const filtered = useMemo(() => {
     if (!list) return [];
     const q = query.trim().toLowerCase().replace(/^#/, "");

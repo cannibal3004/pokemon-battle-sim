@@ -169,11 +169,21 @@ export class Battle {
     return best === -1 ? 0 : best;
   }
 
-  /** Swap the active; stat stages reset when a Pokemon leaves the field (real-game rule). */
+  /**
+   * Swap the active. Everything scoped to "until this Pokemon leaves the field"
+   * resets here: stat stages, the Choice-item move lock, and the once-per-entry
+   * Sturdy/Multiscale flags. Focus Sash stays spent (a consumed item does not
+   * come back), and flinch is cleared as a matter of hygiene.
+   */
   private setActive(side: Side, index: number) {
     const cur = side === "player" ? this.playerActive : this.aiActive;
     if (cur === index) return;
-    this.teams[side][cur].stages = emptyStages();
+    const leaving = this.teams[side][cur];
+    leaving.stages = emptyStages();
+    leaving.lockedMove = null;
+    leaving.sturdyUsed = false;
+    leaving.multiscaleUsed = false;
+    leaving.flinched = false;
     if (side === "player") this.playerActive = index;
     else this.aiActive = index;
   }
@@ -217,9 +227,16 @@ export class Battle {
       evts.push(...this.useMove(actor, target, idx));
     }
 
+    // Only the Pokemon that started the turn take end-of-turn residual damage:
+    // a replacement sent in after a mid-turn faint is not affected until the
+    // next turn. (A voluntary switch is different -- that replacement is on the
+    // field for the whole turn, so voluntarySwitch still ticks it.)
     for (const side of ["player", "ai"] as Side[]) {
       if (this.over !== null) break;
-      evts.push(...this.endOfTurn(this.combatants[side], side));
+      const actor = actors[side];
+      if (actor.hp > 0 && this.combatants[side] === actor) {
+        evts.push(...this.endOfTurn(actor, side));
+      }
     }
 
     if (this.over !== null) evts.push({ kind: "end", winner: this.over });
@@ -355,28 +372,15 @@ export class Battle {
       text,
     });
 
-    let recoil = 0;
-    if (mv.recoilPct > 0) recoil += Math.floor((dmg * mv.recoilPct) / 100);
-    if (actor.item === "life_orb") recoil += Math.floor(dmg * 0.1);
-    if (recoil > 0) {
-      const rd = Math.min(actor.hp - 1, recoil);
-      if (rd > 0) {
-        actor.hp -= rd;
-        evts.push({
-          kind: "damage",
-          side: actor.side,
-          amount: rd,
-          maxHp: actor.maxHp,
-          crit: false,
-          stab: false,
-          effectiveness: 1,
-          source: "recoil",
-          text: `${actor.def.displayName} took recoil damage.`,
-        });
-      }
-    }
+    // Resolve the target's faint before anything that can KO the user: if recoil
+    // swallowed this, the battle would deadlock on a fainted active with no
+    // switch prompt.
+    if (target.hp <= 0) this.faint(target, evts);
 
-    if (mv.drainPct > 0) {
+    // Drain happens as part of the attack, so it is applied before recoil --
+    // otherwise recoil could faint the user and drain would then heal a fainted
+    // Pokemon back above 0 HP.
+    if (mv.drainPct > 0 && actor.hp > 0) {
       const heal = Math.min(actor.maxHp - actor.hp, Math.floor((dmg * mv.drainPct) / 100));
       if (heal > 0) {
         actor.hp += heal;
@@ -390,7 +394,32 @@ export class Battle {
       }
     }
 
-    if (target.hp <= 0) this.faint(target, evts);
+    // Recoil is a fraction of the damage dealt; Life Orb is a flat 10% of the
+    // user's max HP (rounded down, minimum 1) and is blocked by Magic Guard.
+    // Either can legitimately faint the user, which goes through the faint path.
+    let recoil = 0;
+    if (mv.recoilPct > 0) recoil += Math.floor((dmg * mv.recoilPct) / 100);
+    const lifeOrb = actor.item === "life_orb" && !isMagicGuard(actor);
+    if (lifeOrb) recoil += Math.max(1, Math.floor(actor.maxHp / 10));
+    if (recoil > 0 && actor.hp > 0) {
+      const rd = Math.min(actor.hp, recoil);
+      actor.hp -= rd;
+      evts.push({
+        kind: "damage",
+        side: actor.side,
+        amount: rd,
+        maxHp: actor.maxHp,
+        crit: false,
+        stab: false,
+        effectiveness: 1,
+        source: "recoil",
+        text:
+          lifeOrb && mv.recoilPct === 0
+            ? `${actor.def.displayName} lost some of its HP!`
+            : `${actor.def.displayName} took recoil damage.`,
+      });
+      if (actor.hp <= 0) this.faint(actor, evts);
+    }
   }
 
   private applyStatusMove(
@@ -449,15 +478,17 @@ export class Battle {
           status: mv.ailment,
           text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
         });
-      } else if (target.status !== mv.ailment) {
-        target.status = mv.ailment;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: mv.ailment,
-          text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
       } else {
+        // A Pokemon can only hold one non-volatile status: a second, different
+        // one fails rather than silently replacing the first.
+        if (target.status !== mv.ailment) {
+          evts.push({
+            kind: "no-effect",
+            side: target.side,
+            text: `But it failed to affect ${target.def.displayName}!`,
+          });
+          return;
+        }
         evts.push({
           kind: "no-effect",
           side: target.side,

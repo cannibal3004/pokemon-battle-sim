@@ -11,6 +11,7 @@ import {
   randomTeamIds,
 } from "../data/pokemon";
 import { useBattle, type TeamMemberView, type Teams } from "../hooks/useBattle";
+import { useBattleKeys } from "../hooks/useBattleKeys";
 import { HpBar } from "./HpBar";
 import { StageTable, StatusBadge, TYPE_COLORS, TypeBadges } from "./badges";
 
@@ -159,6 +160,16 @@ export function BattleScreen({ setup: initialSetup, chart, natures, onExit }: Ba
     return false;
   };
 
+  useBattleKeys({
+    view,
+    chooseMove,
+    chooseSwitch,
+    openSwitch,
+    cancelSwitch,
+    moveEnabled: (i) => !moveDisabled(i),
+    teamSize: playerTeam.length,
+  });
+
   const allOut = useMemo(
     () => playerActive.moves.every((_, i) => (view.pp.player[i] ?? 0) <= 0),
     [playerActive.moves, view.pp.player],
@@ -305,7 +316,12 @@ export function BattleScreen({ setup: initialSetup, chart, natures, onExit }: Ba
                     disabled={moveDisabled(i)}
                     onClick={() => chooseMove(i)}
                   >
-                    <span className="move-name">{m.def.displayName}</span>
+                    <span className="move-name">
+                      <span className="key-hint" aria-hidden="true">
+                        {i + 1}
+                      </span>
+                      {m.def.displayName}
+                    </span>
                     <span className="move-meta">
                       <span
                         className="type-badge"
@@ -335,8 +351,14 @@ export function BattleScreen({ setup: initialSetup, chart, natures, onExit }: Ba
                 onClick={openSwitch}
                 disabled={view.phase !== "choosing"}
               >
+                <span className="key-hint" aria-hidden="true">
+                  S
+                </span>
                 Switch
               </button>
+              <p className="keys-help">
+                Keys: 1&ndash;4 moves &middot; S switch &middot; Esc cancel
+              </p>
             </>
           )}
         </div>

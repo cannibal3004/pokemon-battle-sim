@@ -4,6 +4,7 @@ import { loadNatures } from "./data/pokemon";
 import type { NatureDef } from "./battle/types";
 import { Lobby } from "./components/Lobby";
 import { BattleScreen, type MatchSetup } from "./components/Battle";
+import { SoundToggle } from "./components/SoundToggle";
 
 export default function App() {
   const [chart, setChart] = useState<number[][] | null>(null);
@@ -40,11 +41,20 @@ export default function App() {
     );
   }
 
-  if (setup) {
-    return (
-      <BattleScreen setup={setup} chart={chart} natures={natures} onExit={() => setSetup(null)} />
-    );
-  }
-
-  return <Lobby onStart={setSetup} />;
+  // Mounted once here so the control survives switching between lobby and battle.
+  return (
+    <>
+      <SoundToggle />
+      {setup ? (
+        <BattleScreen
+          setup={setup}
+          chart={chart}
+          natures={natures}
+          onExit={() => setSetup(null)}
+        />
+      ) : (
+        <Lobby onStart={setSetup} />
+      )}
+    </>
+  );
 }

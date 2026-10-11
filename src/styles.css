@@ -1447,3 +1447,110 @@ button {
 .log::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- Sound toggle ------------------------------------------------------- */
+.sound-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sound-toggle:hover {
+  border-color: var(--accent);
+}
+
+.sound-toggle.muted {
+  color: var(--text-dim);
+}
+
+/* --- Keyboard hints ----------------------------------------------------- */
+.key-hint {
+  display: inline-block;
+  min-width: 16px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.keys-help {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Hide the keyboard affordances on touch layouts, where there is no keyboard. */
+@media (hover: none) and (pointer: coarse) {
+  .key-hint,
+  .keys-help {
+    display: none;
+  }
+}
+
+/* --- Small screens ------------------------------------------------------ */
+@media (max-width: 760px) {
+  /* The arena keeps its 2-column grid: children place themselves with explicit
+     grid-column values, so collapsing to one column would not stack them. It
+     just needs to stop being taller and wider than a phone. */
+  .arena {
+    min-height: 300px;
+  }
+
+  .info-card {
+    min-width: 0;
+    max-width: none;
+    margin: 8px 0 0 8px;
+    padding: 8px 10px;
+  }
+
+  .info-card:last-of-type {
+    margin: 0 8px 8px 0;
+  }
+
+  .battle-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  /* The log is the least useful thing on a short screen, so cap it and let the
+     move buttons stay reachable without scrolling. */
+  .log {
+    max-height: 140px;
+  }
+
+  .move-grid {
+    gap: 6px;
+  }
+
+  .move-btn {
+    padding: 10px 8px;
+  }
+
+  .team-strip {
+    gap: 3px;
+  }
+
+  .sound-toggle .sound-label {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .move-grid {
+    grid-template-columns: 1fr;
+  }
+}
