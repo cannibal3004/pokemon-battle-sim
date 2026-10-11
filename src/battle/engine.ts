@@ -372,24 +372,33 @@ export class Battle {
       text,
     });
 
+    // Recoil is a fraction of the damage dealt; Life Orb is a flat 10% of the
+    // user's max HP (rounded down, minimum 1) and is blocked by Magic Guard.
+    // Either can legitimately faint the user, which goes through the faint path.
     let recoil = 0;
     if (mv.recoilPct > 0) recoil += Math.floor((dmg * mv.recoilPct) / 100);
-    if (actor.item === "life_orb") recoil += Math.floor(dmg * 0.1);
+    const lifeOrb = actor.item === "life_orb" && !isMagicGuard(actor);
+    if (lifeOrb) recoil += Math.max(1, Math.floor(actor.maxHp / 10));
     if (recoil > 0) {
-      const rd = Math.min(actor.hp - 1, recoil);
-      if (rd > 0) {
-        actor.hp -= rd;
-        evts.push({
-          kind: "damage",
-          side: actor.side,
-          amount: rd,
-          maxHp: actor.maxHp,
-          crit: false,
-          stab: false,
-          effectiveness: 1,
-          source: "recoil",
-          text: `${actor.def.displayName} took recoil damage.`,
-        });
+      const rd = Math.min(actor.hp, recoil);
+      actor.hp -= rd;
+      evts.push({
+        kind: "damage",
+        side: actor.side,
+        amount: rd,
+        maxHp: actor.maxHp,
+        crit: false,
+        stab: false,
+        effectiveness: 1,
+        source: "recoil",
+        text:
+          lifeOrb && mv.recoilPct === 0
+            ? `${actor.def.displayName} lost some of its HP!`
+            : `${actor.def.displayName} took recoil damage.`,
+      });
+      if (actor.hp <= 0) {
+        this.faint(actor, evts);
+        return;
       }
     }
 

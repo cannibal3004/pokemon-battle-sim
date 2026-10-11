@@ -3,6 +3,7 @@ import { combatant, makeBattle, move, withRandom } from "./testUtils";
 import type { BattleEvent } from "./types";
 
 const textOf = (e: BattleEvent) => ("text" in e ? e.text : "");
+const amountOf = (e: BattleEvent) => ("amount" in e ? e.amount : 0);
 
 const tackle = move({ name: "tackle", power: 40 });
 const scratch = move({ name: "scratch", power: 40 });
@@ -168,6 +169,20 @@ describe("end-of-turn residual damage", () => {
     const b = makeBattle([mon], [combatant({ name: "F", side: "ai", moves: [] })]);
     b.runTurn(0, 0);
     expect(mon.hp).toBe(112);
+  });
+});
+describe("Life Orb", () => {
+  it("costs 10% of the user's max HP per attack, not 10% of damage dealt", () => {
+    const orb = combatant({ name: "Orb", side: "player", item: "life_orb", moves: [tackle] });
+    const foe = combatant({ name: "F", side: "ai", moves: [tackle] });
+    const b = makeBattle([orb], [foe]);
+    const events = b.runTurn(0, 0);
+    const recoil = events.filter(
+      (e) => e.kind === "damage" && e.source === "recoil" && e.side === "player",
+    );
+    expect(recoil).toHaveLength(1);
+    // 10% of 200 max HP = 20. A damage-based recoil would be far smaller.
+    expect(amountOf(recoil[0])).toBe(20);
   });
 });
 describe("switching", () => {
