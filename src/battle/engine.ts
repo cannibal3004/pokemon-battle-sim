@@ -30,12 +30,16 @@ const STRUGGLE: MoveDef = {
   recoilPct: 25,
   drainPct: 0,
   targetsSelf: false,
+  minHits: 1,
+  maxHits: 1,
 };
 
 const STATUS_TEXT: Record<Exclude<StatusId, "none" | "flinch">, string> = {
   burn: "burned",
   paralysis: "paralyzed",
   poison: "poisoned",
+  sleep: "fast asleep",
+  freeze: "frozen solid",
 };
 
 export class Battle {
@@ -262,6 +266,47 @@ export class Battle {
       return evts;
     }
 
+    if (actor.status === "sleep") {
+      if (actor.sleepTurns > 0) {
+        actor.sleepTurns--;
+        evts.push({
+          kind: "status",
+          side,
+          status: "sleep",
+          text: `${actor.def.displayName} is fast asleep!`,
+        });
+        return evts;
+      }
+      // From Generation II onward a Pokemon wakes and attacks on the same turn.
+      actor.status = "none";
+      evts.push({
+        kind: "status",
+        side,
+        status: "none",
+        text: `${actor.def.displayName} woke up!`,
+      });
+    }
+
+    if (actor.status === "freeze") {
+      // 20% chance to thaw each turn it would act (Generation III onward).
+      if (Math.random() >= 0.2) {
+        evts.push({
+          kind: "status",
+          side,
+          status: "freeze",
+          text: `${actor.def.displayName} is frozen solid!`,
+        });
+        return evts;
+      }
+      actor.status = "none";
+      evts.push({
+        kind: "status",
+        side,
+        status: "none",
+        text: `${actor.def.displayName} thawed out!`,
+      });
+    }
+
     if (actor.status === "paralysis" && Math.random() < 0.25) {
       evts.push({
         kind: "paralyzed",
@@ -313,8 +358,8 @@ export class Battle {
     mv: MoveDef,
     evts: BattleEvent[],
   ) {
-    const result = calculateDamage(actor, target, mv, this.chart);
-    if (result.immune) {
+    const first = calculateDamage(actor, target, mv, this.chart);
+    if (first.immune) {
       evts.push({
         kind: "no-effect",
         side: target.side,
@@ -323,54 +368,86 @@ export class Battle {
       return;
     }
 
-    let dmg = result.amount;
+    // Multi-hit moves (Bullet Seed, Rock Blast, ...) roll 2-5 independent hits.
+    // Multiscale/Focus Sash/Sturdy guard only the first hit: their once-per-entry
+    // flags are set inside the loop, so later hits pass straight through.
+    const hits =
+      mv.maxHits > 1
+        ? mv.minHits + Math.floor(Math.random() * (mv.maxHits - mv.minHits + 1))
+        : 1;
     const targetAbility = getAbility(target.ability);
-    if (targetAbility?.multiscale && !target.multiscaleUsed) {
-      target.multiscaleUsed = true;
-      dmg = Math.max(1, Math.floor(dmg / 2));
-      evts.push({
-        kind: "ability-note",
-        side: target.side,
-        text: `${target.def.displayName}'s Multiscale halved the damage!`,
-      });
-    }
+    let dmg = 0;
 
-    if (dmg >= target.hp) {
-      if (target.item === "focus_sash" && !target.itemUsed) {
-        target.itemUsed = true;
-        dmg = target.hp - 1;
-        evts.push({
-          kind: "item-note",
-          side: target.side,
-          text: `${target.def.displayName}'s Focus Sash saved it from fainting!`,
-        });
-      } else if (targetAbility?.sturdy && !target.sturdyUsed) {
-        target.sturdyUsed = true;
-        dmg = target.hp - 1;
+    for (let hit = 0; hit < hits; hit++) {
+      const result = hit === 0 ? first : calculateDamage(actor, target, mv, this.chart);
+      let hitDmg = result.amount;
+
+      if (targetAbility?.multiscale && !target.multiscaleUsed) {
+        target.multiscaleUsed = true;
+        hitDmg = Math.max(1, Math.floor(hitDmg / 2));
         evts.push({
           kind: "ability-note",
           side: target.side,
-          text: `${target.def.displayName}'s Sturdy saved it from fainting!`,
+          text: `${target.def.displayName}'s Multiscale halved the damage!`,
         });
       }
-    }
 
-    target.hp = Math.max(0, target.hp - dmg);
-    let text = `${target.def.displayName} took ${dmg} damage.`;
-    if (result.crit) text += " A critical hit!";
-    else if (result.effectiveness > 1) text += " It's super effective!";
-    else if (result.effectiveness > 0 && result.effectiveness < 1) text += " It's not very effective...";
-    evts.push({
-      kind: "damage",
-      side: target.side,
-      amount: dmg,
-      maxHp: target.maxHp,
-      crit: result.crit,
-      stab: result.stab,
-      effectiveness: result.effectiveness,
-      source: "move",
-      text,
-    });
+      if (hitDmg >= target.hp) {
+        if (target.item === "focus_sash" && !target.itemUsed) {
+          target.itemUsed = true;
+          hitDmg = target.hp - 1;
+          evts.push({
+            kind: "item-note",
+            side: target.side,
+            text: `${target.def.displayName}'s Focus Sash saved it from fainting!`,
+          });
+        } else if (targetAbility?.sturdy && !target.sturdyUsed) {
+          target.sturdyUsed = true;
+          hitDmg = target.hp - 1;
+          evts.push({
+            kind: "ability-note",
+            side: target.side,
+            text: `${target.def.displayName}'s Sturdy saved it from fainting!`,
+          });
+        }
+      }
+
+      target.hp = Math.max(0, target.hp - hitDmg);
+      dmg += hitDmg;
+
+      let text =
+        hits > 1
+          ? `${target.def.displayName} took ${hitDmg} damage (${hit + 1}/${hits}).`
+          : `${target.def.displayName} took ${hitDmg} damage.`;
+      if (result.crit) text += " A critical hit!";
+      else if (result.effectiveness > 1) text += " It's super effective!";
+      else if (result.effectiveness > 0 && result.effectiveness < 1)
+        text += " It's not very effective...";
+      evts.push({
+        kind: "damage",
+        side: target.side,
+        amount: hitDmg,
+        maxHp: target.maxHp,
+        crit: result.crit,
+        stab: result.stab,
+        effectiveness: result.effectiveness,
+        source: "move",
+        text,
+      });
+
+      // Secondary effect (Ice Beam's freeze, Flamethrower's burn, Thunder's
+      // paralysis): rolled per hit, skipped when the target already has a status.
+      if (
+        mv.ailment !== "none" &&
+        target.hp > 0 &&
+        target.status === "none" &&
+        Math.random() * 100 < mv.ailmentChance
+      ) {
+        this.applyAilment(target, mv.ailment, evts);
+      }
+
+      if (target.hp <= 0) break;
+    }
 
     // Resolve the target's faint before anything that can KO the user: if recoil
     // swallowed this, the battle would deadlock on a fainted active with no
@@ -462,40 +539,59 @@ export class Battle {
     else applyChanges(target, mv.targetChanges);
 
     if (mv.ailment !== "none" && Math.random() * 100 < mv.ailmentChance) {
-      if (mv.ailment === "flinch") {
-        target.flinched = true;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: "flinch",
-          text: `${target.def.displayName} flinched!`,
-        });
-      } else if (target.status === "none") {
-        target.status = mv.ailment;
-        evts.push({
-          kind: "status",
-          side: target.side,
-          status: mv.ailment,
-          text: `${target.def.displayName} was ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
-      } else {
-        // A Pokemon can only hold one non-volatile status: a second, different
-        // one fails rather than silently replacing the first.
-        if (target.status !== mv.ailment) {
-          evts.push({
-            kind: "no-effect",
-            side: target.side,
-            text: `But it failed to affect ${target.def.displayName}!`,
-          });
-          return;
-        }
-        evts.push({
-          kind: "no-effect",
-          side: target.side,
-          text: `${target.def.displayName} is already ${STATUS_TEXT[mv.ailment as Exclude<StatusId, "none" | "flinch">]}!`,
-        });
-      }
+      this.applyAilment(target, mv.ailment, evts);
     }
+  }
+
+  /**
+   * Inflict an ailment, honouring the one-status-per-Pokemon rule. Shared by
+   * status moves and the secondary effect of damaging moves (Ice Beam freezing,
+   * Flamethrower burning, Thunder paralyzing), which previously did nothing.
+   */
+  private applyAilment(
+    target: Combatant,
+    ailment: StatusId,
+    evts: BattleEvent[],
+  ) {
+    if (ailment === "none") return;
+
+    if (ailment === "flinch") {
+      target.flinched = true;
+      evts.push({
+        kind: "status",
+        side: target.side,
+        status: "flinch",
+        text: `${target.def.displayName} flinched!`,
+      });
+      return;
+    }
+
+    if (target.status !== "none") {
+      // A Pokemon can only hold one non-volatile status: a second, different
+      // one fails rather than silently replacing the first.
+      evts.push({
+        kind: "no-effect",
+        side: target.side,
+        text:
+          target.status === ailment
+            ? `${target.def.displayName} is already ${STATUS_TEXT[ailment as Exclude<StatusId, "none" | "flinch">]}!`
+            : `But it failed to affect ${target.def.displayName}!`,
+      });
+      return;
+    }
+
+    target.status = ailment;
+    if (ailment === "sleep") {
+      // Counter of 2-4 means the target skips 1-3 turns before waking, matching
+      // the modern games' "1 to 3 turns" and PokeAPI's own min/max_turns.
+      target.sleepTurns = 2 + Math.floor(Math.random() * 3);
+    }
+    evts.push({
+      kind: "status",
+      side: target.side,
+      status: ailment,
+      text: `${target.def.displayName} was ${STATUS_TEXT[ailment as Exclude<StatusId, "none" | "flinch">]}!`,
+    });
   }
 
   private endOfTurn(c: Combatant, side: Side): BattleEvent[] {

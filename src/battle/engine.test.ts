@@ -258,3 +258,159 @@ describe("fainting", () => {
     expect(b.runTurn(0, 0)).toHaveLength(0);
   });
 });
+
+describe("sleep", () => {
+  const mkAsleep = (turns: number) =>
+    combatant({ name: "Sleeper", side: "player", status: "sleep", sleepTurns: turns,
+      moves: [tackle], stats: { speed: 300 } });
+  const idle = () => combatant({ name: "F", side: "ai", moves: [], stats: { speed: 10 } });
+
+  it("skips turns while the counter lasts, then wakes and attacks", () => {
+    const sleeper = mkAsleep(2);
+    const foe = idle();
+    const b = makeBattle([sleeper], [foe]);
+
+    expect(textOf(b.runTurn(0, 0)[1])).toContain("fast asleep");
+    expect(sleeper.sleepTurns).toBe(1);
+    expect(foe.hp).toBe(foe.maxHp);
+
+    b.runTurn(0, 0);
+    expect(sleeper.sleepTurns).toBe(0);
+    expect(foe.hp).toBe(foe.maxHp);
+
+    // Counter exhausted: wakes and attacks on the same turn (Gen II onward).
+    withRandom([0.999, 0], () => b.runTurn(0, 0));
+    expect(sleeper.status).toBe("none");
+    expect(foe.hp).toBeLessThan(foe.maxHp);
+  });
+
+  it("does not wake early and keeps the status until the counter runs out", () => {
+    const sleeper = mkAsleep(3);
+    const b = makeBattle([sleeper], [idle()]);
+    b.runTurn(0, 0);
+    expect(sleeper.status).toBe("sleep");
+    expect(sleeper.sleepTurns).toBe(2);
+  });
+});
+
+describe("freeze", () => {
+  const frozen = () =>
+    combatant({ name: "Icy", side: "player", status: "freeze", moves: [tackle],
+      stats: { speed: 300 } });
+  const idle = () => combatant({ name: "F", side: "ai", moves: [], stats: { speed: 10 } });
+
+  it("blocks the turn when the thaw roll fails", () => {
+    const mon = frozen();
+    const foe = idle();
+    const b = makeBattle([mon], [foe]);
+    // 0.999 >= 0.2 -> stays frozen.
+    const events = withRandom([0.999], () => b.runTurn(0, 0));
+    expect(mon.status).toBe("freeze");
+    expect(foe.hp).toBe(foe.maxHp);
+    expect(textOf(events[1])).toContain("frozen solid");
+  });
+
+  it("thaws on a successful roll and attacks that same turn", () => {
+    const mon = frozen();
+    const foe = idle();
+    const b = makeBattle([mon], [foe]);
+    // 0.1 < 0.2 -> thaws; then crit + damage rolls.
+    const events = withRandom([0.1, 0.999, 0], () => b.runTurn(0, 0));
+    expect(mon.status).toBe("none");
+    expect(foe.hp).toBeLessThan(foe.maxHp);
+    expect(textOf(events[1])).toContain("thawed out");
+  });
+});
+
+
+describe("damaging-move secondary effects", () => {
+  // Before this feature, applyDamageMove ignored mv.ailment entirely: Ice Beam
+  // could not freeze and Flamethrower could not burn.
+  const iceBeam = move({
+    name: "ice-beam", power: 90, class: "special", type: "ice",
+    ailment: "freeze", ailmentChance: 10,
+  });
+
+  const mkPair = () => {
+    const atk = combatant({ name: "A", side: "player", moves: [iceBeam], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    return { atk, def, b: makeBattle([atk], [def]) };
+  };
+
+  it("inflicts the secondary status when the roll succeeds", () => {
+    const { def, b } = mkPair();
+    withRandom([0.999, 0, 0.05], () => b.runTurn(0, 0));
+    expect(def.status).toBe("freeze");
+  });
+
+  it("respects the ailment chance when the roll fails", () => {
+    const { def, b } = mkPair();
+    withRandom([0.999, 0, 0.5], () => b.runTurn(0, 0));
+    expect(def.status).toBe("none");
+  });
+
+  it("does not replace an existing status, and stays silent about it", () => {
+    // A secondary effect that cannot apply is not announced: the move just does
+    // its damage. Only status moves report "But it failed to affect ...!".
+    const { def, b } = mkPair();
+    def.status = "burn";
+    const events = withRandom([0.999, 0, 0.05], () => b.runTurn(0, 0));
+    expect(def.status).toBe("burn");
+    expect(events.some((e) => e.kind === "status")).toBe(false);
+    expect(events.some((e) => e.kind === "no-effect")).toBe(false);
+    expect(def.hp).toBeLessThan(def.maxHp);
+  });
+});
+
+describe("multi-hit moves", () => {
+  const bulletSeed = move({
+    name: "bullet-seed", power: 25, class: "physical", type: "grass",
+    minHits: 2, maxHits: 5,
+  });
+
+  const mkPair = () => {
+    const atk = combatant({ name: "A", side: "player", moves: [bulletSeed], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    return { def, b: makeBattle([atk], [def]) };
+  };
+
+  it("rolls the hit count within min..max and lands that many hits", () => {
+    const { def, b } = mkPair();
+    // crit(no), factor, hitRoll 0 -> 2 hits, then hit 2: crit(no), factor.
+    const events = withRandom([0.999, 0, 0, 0.999, 0], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(2);
+    expect(textOf(hits[1])).toContain("(2/2)");
+    expect(def.hp).toBeLessThan(def.maxHp);
+  });
+
+  it("rolls the maximum when the hit roll is at the top", () => {
+    const { b } = mkPair();
+    // hitRoll 0.999 -> 5 hits: damage rolls needed for hits 2-5 as well.
+    const events = withRandom(
+      [0.999, 0, 0.999, 0.999, 0, 0.999, 0, 0.999, 0, 0.999, 0],
+      () => b.runTurn(0, 0),
+    );
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(5);
+  });
+
+  it("stops hitting once the target faints", () => {
+    const { def, b } = mkPair();
+    def.hp = 1;
+    const events = withRandom([0.999, 0, 0.999], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(1);
+    expect(def.hp).toBe(0);
+  });
+
+  it("a single-hit move is unaffected", () => {
+    const atk = combatant({ name: "A", side: "player", moves: [tackle], stats: { speed: 300 } });
+    const def = combatant({ name: "D", side: "ai", moves: [], stats: { speed: 10 } });
+    const b = makeBattle([atk], [def]);
+    const events = withRandom([0.999, 0], () => b.runTurn(0, 0));
+    const hits = events.filter((e) => e.kind === "damage" && e.source === "move");
+    expect(hits).toHaveLength(1);
+    expect(textOf(hits[0])).not.toContain("(1/1)");
+  });
+});

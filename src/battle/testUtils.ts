@@ -45,6 +45,8 @@ export function move(over: Partial<MoveDef> & { name: string }): MoveDef {
     recoilPct: 0,
     drainPct: 0,
     targetsSelf: false,
+    minHits: 1,
+    maxHits: 1,
     ...over,
   };
 }
@@ -106,6 +108,7 @@ export function combatant(over: CombatantOverrides): Combatant {
     sturdyUsed: false,
     multiscaleUsed: false,
     flinched: false,
+    sleepTurns: 0,
     ...rest,
     stats,
     maxHp: stats.hp,

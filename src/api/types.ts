@@ -57,6 +57,8 @@ export interface MoveEffectChange {
 }
 
 export interface MoveMeta {
+  min_hits?: number | null;
+  max_hits?: number | null;
   ailment: NamedRef;
   ailment_chance: number;
   drain: number;

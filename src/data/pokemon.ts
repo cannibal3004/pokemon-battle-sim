@@ -33,6 +33,10 @@ const AILMENT_KEY: Record<string, StatusId> = {
   burn: "burn",
   paralysis: "paralysis",
   poison: "poison",
+  sleep: "sleep",
+  // PokeAPI has used both spellings for the frozen ailment across versions.
+  freeze: "freeze",
+  frozen: "freeze",
 };
 
 const SELF_TARGETS = [
@@ -223,6 +227,8 @@ function toMoveDef(move: MoveAPI): MoveDef | null {
     ailmentChance,
     selfChanges,
     targetChanges,
+    minHits: meta?.min_hits ?? 1,
+    maxHits: meta?.max_hits ?? meta?.min_hits ?? 1,
     recoilPct: Math.max(
       Math.abs(meta?.recoil ?? 0),
       (meta?.drain ?? 0) < 0 ? Math.abs(meta.drain) : 0,
@@ -384,6 +390,7 @@ export function createCombatant(
     sturdyUsed: false,
     multiscaleUsed: false,
     flinched: false,
+    sleepTurns: 0,
   };
 }
 
