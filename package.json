@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node test/e2e/battle.test.mjs && node test/e2e/mirror.test.mjs",
+    "test:e2e": "node test/e2e/battle.test.mjs && node test/e2e/mirror.test.mjs && node test/e2e/ux.test.mjs",
     "test:e2e:perf": "node test/e2e/perf.mjs"
   },
   "dependencies": {

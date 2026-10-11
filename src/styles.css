@@ -1474,3 +1474,31 @@ button {
   color: var(--text-dim);
 }
 
+/* --- Keyboard hints ----------------------------------------------------- */
+.key-hint {
+  display: inline-block;
+  min-width: 16px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.keys-help {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Hide the keyboard affordances on touch layouts, where there is no keyboard. */
+@media (hover: none) and (pointer: coarse) {
+  .key-hint,
+  .keys-help {
+    display: none;
+  }
+}
+

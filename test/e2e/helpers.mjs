@@ -171,3 +171,17 @@ export async function playBattle(page, { maxTurns = 200, stallLimit = 8 } = {}) 
   }
   return { turns, switches, result, stalled: false };
 }
+
+/**
+ * Wait until the battle is accepting input again.
+ *
+ * A turn replays its event stream with per-event delays, so the phase stays
+ * "animating" for a second or more after a click. Pressing a key during that
+ * window is silently ignored, which once looked like a broken shortcut.
+ */
+export async function waitForActionable(page, timeout = 30000) {
+  await page
+    .locator(".move-btn:not([disabled])")
+    .first()
+    .waitFor({ state: "visible", timeout });
+}
