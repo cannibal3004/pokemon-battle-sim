@@ -227,9 +227,16 @@ export class Battle {
       evts.push(...this.useMove(actor, target, idx));
     }
 
+    // Only the Pokemon that started the turn take end-of-turn residual damage:
+    // a replacement sent in after a mid-turn faint is not affected until the
+    // next turn. (A voluntary switch is different -- that replacement is on the
+    // field for the whole turn, so voluntarySwitch still ticks it.)
     for (const side of ["player", "ai"] as Side[]) {
       if (this.over !== null) break;
-      evts.push(...this.endOfTurn(this.combatants[side], side));
+      const actor = actors[side];
+      if (actor.hp > 0 && this.combatants[side] === actor) {
+        evts.push(...this.endOfTurn(actor, side));
+      }
     }
 
     if (this.over !== null) evts.push({ kind: "end", winner: this.over });

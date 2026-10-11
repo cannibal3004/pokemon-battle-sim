@@ -141,6 +141,26 @@ describe("status moves", () => {
   });
 });
 describe("end-of-turn residual damage", () => {
+  it("does not tick residual damage on a Pokemon that just switched in", () => {
+    const fresh = combatant({ name: "Fresh", side: "ai", status: "poison", moves: [tackle] });
+    const dying = combatant({ name: "Dying", side: "ai", hp: 1, moves: [tackle] });
+    const p = combatant({ name: "P", side: "player", moves: [nuke, tackle] });
+    const b = makeBattle([p], [dying, fresh]);
+    const events = b.runTurn(0, 0);
+    expect(b.aiActive).toBe(1);
+    expect(fresh.hp).toBe(fresh.maxHp);
+    expect(events.some((e) => textOf(e).includes("hurt by poison"))).toBe(false);
+  });
+  it("ticks residual damage on a voluntarily switched-in Pokemon", () => {
+    // A voluntary switch is the turn's action, so the replacement is on the
+    // field for the whole turn and does take end-of-turn residual damage —
+    // unlike a forced send-in after a faint (tested above).
+    const poisoned = combatant({ name: "P2", side: "player", status: "poison", moves: [tackle] });
+    const lead = combatant({ name: "Lead", side: "player", moves: [tackle] });
+    const b = makeBattle([lead, poisoned], [combatant({ name: "F", side: "ai", moves: [] })]);
+    b.voluntarySwitch(1);
+    expect(poisoned.hp).toBeLessThan(poisoned.maxHp);
+  });
   it("Leftovers heals at the end of the turn", () => {
     const mon = combatant({ name: "C", side: "player", item: "leftovers", moves: [tackle] });
     mon.hp = 100;
