@@ -10,6 +10,7 @@ import {
   ensureServer,
   launch,
   openLobby,
+  resolveForcedSwitch,
   startBattle,
   waitForActionable,
   watchErrors,
@@ -61,6 +62,10 @@ try {
   await waitForActionable(page);
   const logAfter = await page.locator(".log *").count();
   check(logAfter > logBefore, `pressing "1" takes a turn (${logBefore} -> ${logAfter} log lines)`);
+
+  // The turn may have knocked the player's active out, which swaps the move
+  // grid for a forced replacement picker and would make "S" do nothing.
+  if (await resolveForcedSwitch(page)) await waitForActionable(page);
 
   await page.keyboard.press("s");
   await page.waitForTimeout(500);

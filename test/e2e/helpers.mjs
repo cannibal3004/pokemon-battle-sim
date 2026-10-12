@@ -180,8 +180,36 @@ export async function playBattle(page, { maxTurns = 200, stallLimit = 8 } = {}) 
  * window is silently ignored, which once looked like a broken shortcut.
  */
 export async function waitForActionable(page, timeout = 30000) {
-  await page
-    .locator(".move-btn:not([disabled])")
-    .first()
-    .waitFor({ state: "visible", timeout });
+  // Both branches must swallow their own timeout: with a plain Promise.race the
+  // loser keeps running and rejects after the race has settled, which is an
+  // unhandled rejection and kills the process on Node 24.
+  const settled = (locator) =>
+    page
+      .locator(locator)
+      .first()
+      .waitFor({ state: "visible", timeout })
+      .then(() => true)
+      .catch(() => false);
+
+  const moved = await Promise.race([
+    settled(".move-btn:not([disabled])"),
+    settled(".switch-picker .team-pick:not([disabled])"),
+  ]);
+  if (!moved) throw new Error(`no move buttons or switch picker within ${timeout}ms`);
+}
+
+/**
+ * Clear a forced switch prompt if one is up.
+ *
+ * A turn can end with the player's active fainted, which shows the replacement
+ * picker instead of the move grid. Tests that assume move buttons must resolve
+ * it first; the AI using status moves made faints on the player's side common
+ * enough that ignoring this produced a 30s timeout.
+ */
+export async function resolveForcedSwitch(page) {
+  const pick = page.locator(".switch-picker .team-pick:not([disabled])");
+  if ((await pick.count()) === 0) return false;
+  await pick.first().click();
+  await page.waitForTimeout(1200);
+  return true;
 }
