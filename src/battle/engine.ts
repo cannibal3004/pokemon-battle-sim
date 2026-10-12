@@ -1,4 +1,4 @@
-import { chooseAiMove } from "./ai";
+import { chooseAiMove, chooseAiSwitch } from "./ai";
 import { getAbility, isMagicGuard } from "./abilities";
 import { calculateDamage } from "./damage";
 import { emptyStages, effectiveSpeed, stageWord, statLabel } from "./stats";
@@ -107,8 +107,10 @@ export class Battle {
    * Switch a Pokemon in after its current active fainted (free action, no turn consumed).
    * Only called for the player; the AI auto-sends inside faint().
    */
-  sendIn(side: Side, index: number): BattleEvent[] {
+  sendIn(side: Side, index: number, voluntary = false): BattleEvent[] {
     const evts: BattleEvent[] = [];
+    // Captured before setActive, which repoints the active.
+    const leaving = this.combatants[side];
     this.setActive(side, index);
     const c = this.combatants[side];
     evts.push({
@@ -118,7 +120,11 @@ export class Battle {
       text:
         side === "player"
           ? `Go, ${c.def.displayName}!`
-          : `The enemy sent out ${c.def.displayName}!`,
+          : voluntary
+            // A voluntary withdrawal is the AI's own decision, not a faint, so
+            // say so: otherwise it is indistinguishable from a forced send.
+            ? `The enemy withdrew ${leaving.def.displayName} and sent out ${c.def.displayName}!`
+            : `The enemy sent out ${c.def.displayName}!`,
     });
     this.enterEffects(c, evts);
     return evts;
@@ -198,6 +204,16 @@ export class Battle {
     this.turn++;
     evts.push({ kind: "turn", turn: this.turn });
 
+    // The AI spends its turn on a switch when the bench is a clear upgrade.
+    // Doing it before the actors are captured means the replacement acts on the
+    // turn it entered, which is what a voluntary switch does for the player.
+    let aiSwitched = false;
+    const aiSwitch = chooseAiSwitch(this, "ai");
+    if (aiSwitch !== null) {
+      evts.push(...this.sendIn("ai", aiSwitch, true));
+      aiSwitched = true;
+    }
+
     // Capture the committed actors up front: a mid-turn switch-in must not act
     // on the turn it entered, and a fainted actor's move is wasted.
     const actors: Record<Side, Combatant> = { player: this.player, ai: this.ai };
@@ -224,6 +240,9 @@ export class Battle {
     const order: Side[] = [first, OTHER[first]];
     for (const side of order) {
       if (this.over !== null) break;
+      // Switching is the AI's action for the turn: exactly like the player's
+      // voluntarySwitch, the replacement arrives but does not get to attack.
+      if (side === "ai" && aiSwitched) continue;
       const actor = actors[side];
       const target = actors[OTHER[side]];
       if (actor.hp <= 0 || target.hp <= 0) continue;

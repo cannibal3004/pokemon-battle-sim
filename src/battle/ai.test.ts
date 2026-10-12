@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseAiMove } from "./ai";
+import { chooseAiMove, chooseAiSwitch } from "./ai";
 import { combatant, makeBattle, move, withRandom } from "./testUtils";
 import type { Combatant, MoveDef, StatusId } from "./types";
 
@@ -161,5 +161,67 @@ describe("AI accuracy on damaging moves", () => {
     const sure = move({ name: "water-gun", power: 40, accuracy: 100 });
     const risky = move({ name: "hydro-pump", power: 110, accuracy: 80 });
     expect(pick([risky, sure], { hp: 1 }).idx).toBe(1);
+  });
+});
+
+describe("AI voluntary switching", () => {
+  const weak = move({ name: "hold", power: 20 });
+  const strong = move({ name: "smash", power: 120 });
+
+  function battleWith(activeMoves: MoveDef[], benchMoves: MoveDef[], foeOver = {}) {
+    // The foe needs a move: one test asserts the switcher eats a hit.
+    const foe = combatant({ name: "Foe", side: "player", moves: [weak], ...foeOver });
+    const active = combatant({ name: "Active", side: "ai", moves: activeMoves });
+    const bench = combatant({ name: "Bench", side: "ai", moves: benchMoves });
+    return { b: makeBattle([foe], [active, bench]), active, bench, foe };
+  }
+
+  const outOfPP = (c: Combatant) => c.moves.forEach((m) => (m.pp = 0));
+
+  it("does not switch for a better matchup", () => {
+    // A switch costs a whole turn, so the upgrade has to beat a free hit. On 30
+    // seeded matchups this scored 17/30 (1.5x gap) and 19/30 (3x) against 23/30
+    // for never switching, so the AI leaves that judgement alone.
+    const { b } = battleWith([weak], [strong]);
+    expect(chooseAiSwitch(b, "ai")).toBeNull();
+  });
+
+  it("stays in when it can knock the foe out", () => {
+    const { b } = battleWith([strong], [strong], { hp: 1 });
+    expect(chooseAiSwitch(b, "ai")).toBeNull();
+  });
+
+  it("switches out when the active has no usable move left", () => {
+    const { b, active } = battleWith([strong], [weak]);
+    outOfPP(active);
+    expect(chooseAiSwitch(b, "ai")).toBe(1);
+  });
+
+  it("will not send in a Pokemon on the edge of fainting", () => {
+    const { b, active, bench } = battleWith([weak], [strong]);
+    outOfPP(active);
+    bench.hp = Math.floor(bench.maxHp * 0.2);
+    expect(chooseAiSwitch(b, "ai")).toBeNull();
+  });
+
+  it("does not ping-pong: the replacement keeps its turn", () => {
+    const { b, active } = battleWith([weak], [strong]);
+    outOfPP(active);
+    expect(chooseAiSwitch(b, "ai")).toBe(1);
+    b.sendIn("ai", 1);
+    expect(chooseAiSwitch(b, "ai")).toBeNull();
+  });
+
+  it("switching costs the AI its attack, mirroring the player's switch", () => {
+    // voluntarySwitch gives the player a free hit and no attack back; the AI
+    // must play by the same rule or switching is strictly better for it.
+    const { b, active, bench, foe } = battleWith([weak], [strong]);
+    outOfPP(active);
+    const evts = withRandom(0.5, () => b.runTurn(0, 0));
+    const texts = evts.map((e) => ("text" in e ? e.text : ""));
+    expect(texts.some((t) => t.includes("withdrew Active and sent out Bench"))).toBe(true);
+    expect(foe.hp).toBe(foe.maxHp); // the AI landed nothing
+    expect(bench.hp).toBeLessThan(bench.maxHp); // and eats the player's hit
+    expect(active.hp).toBe(active.maxHp); // the switcher left before being hit
   });
 });

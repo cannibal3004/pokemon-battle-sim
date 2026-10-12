@@ -48,7 +48,7 @@ describe("choice item lock", () => {
 });
 describe("one-shot survival effects", () => {
   it("Sturdy triggers again after switching out and back in", () => {
-    const rocky = combatant({ name: "Rocky", side: "ai", ability: "sturdy" });
+    const rocky = combatant({ name: "Rocky", side: "ai", ability: "sturdy", moves: [tackle] });
     const bench = combatant({ name: "B", side: "ai", moves: [tackle] });
     const p = combatant({ name: "P", side: "player", moves: [nuke, tackle] });
     const b = makeBattle([p], [rocky, bench]);
@@ -92,7 +92,7 @@ describe("one-shot survival effects", () => {
     expect(200 - shielded.hp).toBe(Math.max(1, Math.floor((200 - plain.hp) / 2)));
   });
   it("Focus Sash stays consumed after switching (it is a spent item)", () => {
-    const mon = combatant({ name: "Sash", side: "ai", item: "focus_sash" });
+    const mon = combatant({ name: "Sash", side: "ai", item: "focus_sash", moves: [tackle] });
     const bench = combatant({ name: "B", side: "ai", moves: [tackle] });
     const p = combatant({ name: "P", side: "player", moves: [nuke, tackle] });
     const b = makeBattle([p], [mon, bench]);
