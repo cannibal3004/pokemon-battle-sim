@@ -76,7 +76,12 @@ export function chooseAiMove(battle: Battle, side: Side): number {
           if (secondaryLands) {
             value += (m.ailmentChance / 100) * STATUS_VALUE[ail];
           }
-          score = value;
+          // Accuracy gates the whole move, not just the secondary: a 70%-accurate
+          // Thunder is worth less than a 100%-accurate Thunderbolt of the same
+          // power, and estimateDamage cannot express that because it never
+          // models a miss. The status branch already weights by accuracy, so
+          // scaling here keeps both branches on one axis.
+          score = (m.accuracy / 100) * value;
         }
       }
     }

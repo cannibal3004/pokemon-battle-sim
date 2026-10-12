@@ -144,3 +144,14 @@ describe("AI secondary effects on damaging moves", () => {
     expect(pick([withPara, strong]).idx).toBe(1);
   });
 });
+
+describe("AI accuracy on damaging moves", () => {
+  it("prefers a reliable attack over an equally strong inaccurate one", () => {
+    // Same power, so the damage estimate is identical; only accuracy separates
+    // them. estimateDamage does not model the miss, so without this a 70%
+    // Thunder and a 100% Thunderbolt of equal power scored the same.
+    const accurate = move({ name: "thunderbolt", power: 90, accuracy: 100 });
+    const risky = move({ name: "thunder", power: 90, accuracy: 70 });
+    expect(pick([risky, accurate]).idx).toBe(1);
+  });
+});
