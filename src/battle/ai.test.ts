@@ -154,4 +154,12 @@ describe("AI accuracy on damaging moves", () => {
     const risky = move({ name: "thunder", power: 90, accuracy: 70 });
     expect(pick([risky, accurate]).idx).toBe(1);
   });
+
+  it("prefers the reliable knockout when two moves both KO", () => {
+    // Both finish the foe, so both scored a flat 1000 and jitter decided. A miss
+    // costs the entire knockout, so accuracy matters here more than anywhere.
+    const sure = move({ name: "water-gun", power: 40, accuracy: 100 });
+    const risky = move({ name: "hydro-pump", power: 110, accuracy: 80 });
+    expect(pick([risky, sure], { hp: 1 }).idx).toBe(1);
+  });
 });

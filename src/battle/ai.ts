@@ -64,7 +64,10 @@ export function chooseAiMove(battle: Battle, side: Side): number {
       } else {
         let value = (est.amount / foe.maxHp) * 100;
         if (est.amount >= foe.hp) {
-          score = 1000;
+          // Still far above any non-KO value, but weighted: a 70%-accurate
+          // Hydro Pump is worth less than a sure-hit Water Gun that also
+          // finishes the foe, because a miss forfeits the knockout entirely.
+          score = (m.accuracy / 100) * 1000;
         } else {
           // applyDamageMove rolls the secondary per hit and only when the
           // target survived the hit and holds no status, so a KO'd or already
