@@ -62,8 +62,22 @@ export function chooseAiMove(battle: Battle, side: Side): number {
       if (est.immune) {
         score = 0;
       } else {
-        score = (est.amount / foe.maxHp) * 100;
-        if (est.amount >= foe.hp) score = 1000;
+        let value = (est.amount / foe.maxHp) * 100;
+        if (est.amount >= foe.hp) {
+          score = 1000;
+        } else {
+          // applyDamageMove rolls the secondary per hit and only when the
+          // target survived the hit and holds no status, so a KO'd or already
+          // statused foe makes it worthless. Flinch is volatile and still
+          // lands on a statused foe.
+          const ail = m.ailment;
+          const secondaryLands =
+            ail !== "none" && (ail === "flinch" || foe.status === "none");
+          if (secondaryLands) {
+            value += (m.ailmentChance / 100) * STATUS_VALUE[ail];
+          }
+          score = value;
+        }
       }
     }
 
