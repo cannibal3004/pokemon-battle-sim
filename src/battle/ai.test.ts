@@ -103,3 +103,63 @@ describe("AI move availability", () => {
     expect(withRandom(0.5, () => chooseAiMove(b, "ai"))).toBe(0);
   });
 });
+
+describe("AI secondary effects on damaging moves", () => {
+  // Same power and type, so estimateDamage is identical and only the secondary
+  // can break the tie.
+  const plain = move({ name: "plain-hit", power: 90 });
+  const withPara = move({ name: "shock", power: 90, ailment: "paralysis", ailmentChance: 30 });
+  const withFreeze = move({ name: "ice-hit", power: 90, ailment: "freeze", ailmentChance: 10 });
+  const withFlinch = move({ name: "bite-hit", power: 90, ailment: "flinch", ailmentChance: 30 });
+
+  it("prefers the move that can also paralyze over an identical plain hit", () => {
+    // The old scorer looked only at damage, so Thunder and a same-power move
+    // with no effect scored the same and 30% paralysis was invisible.
+    expect(pick([plain, withPara]).idx).toBe(1);
+  });
+
+  // A/B pair: the plain hit is slightly stronger, so the freeze bonus is the
+  // only thing that can tip the choice. Asserting a single winner against equal
+  // moves would be meaningless - a tie is the correct outcome there.
+  const plain95 = move({ name: "plain-95", power: 95 });
+
+  it("lets the freeze bonus tip a close call when the foe is healthy", () => {
+    expect(pick([plain95, withFreeze]).idx).toBe(1);
+  });
+
+  it("drops the freeze bonus when the engine would skip it", () => {
+    // applyDamageMove only rolls the secondary when target.status === "none",
+    // so against a poisoned foe the bonus must vanish and raw power wins.
+    expect(pick([plain95, withFreeze], { status: "poison" }).idx).toBe(0);
+  });
+
+  it("still values flinch against a statused foe", () => {
+    // Flinch is volatile: applyAilment sets it regardless of the foe's status,
+    // so it is the one secondary that keeps its worth here.
+    expect(pick([plain, withFlinch], { status: "poison" }).idx).toBe(1);
+  });
+
+  it("does not let a weak secondary outrank a much stronger hit", () => {
+    const strong = move({ name: "slam", power: 150 });
+    expect(pick([withPara, strong]).idx).toBe(1);
+  });
+});
+
+describe("AI accuracy on damaging moves", () => {
+  it("prefers a reliable attack over an equally strong inaccurate one", () => {
+    // Same power, so the damage estimate is identical; only accuracy separates
+    // them. estimateDamage does not model the miss, so without this a 70%
+    // Thunder and a 100% Thunderbolt of equal power scored the same.
+    const accurate = move({ name: "thunderbolt", power: 90, accuracy: 100 });
+    const risky = move({ name: "thunder", power: 90, accuracy: 70 });
+    expect(pick([risky, accurate]).idx).toBe(1);
+  });
+
+  it("prefers the reliable knockout when two moves both KO", () => {
+    // Both finish the foe, so both scored a flat 1000 and jitter decided. A miss
+    // costs the entire knockout, so accuracy matters here more than anywhere.
+    const sure = move({ name: "water-gun", power: 40, accuracy: 100 });
+    const risky = move({ name: "hydro-pump", power: 110, accuracy: 80 });
+    expect(pick([risky, sure], { hp: 1 }).idx).toBe(1);
+  });
+});

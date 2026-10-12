@@ -62,8 +62,30 @@ export function chooseAiMove(battle: Battle, side: Side): number {
       if (est.immune) {
         score = 0;
       } else {
-        score = (est.amount / foe.maxHp) * 100;
-        if (est.amount >= foe.hp) score = 1000;
+        let value = (est.amount / foe.maxHp) * 100;
+        if (est.amount >= foe.hp) {
+          // Still far above any non-KO value, but weighted: a 70%-accurate
+          // Hydro Pump is worth less than a sure-hit Water Gun that also
+          // finishes the foe, because a miss forfeits the knockout entirely.
+          score = (m.accuracy / 100) * 1000;
+        } else {
+          // applyDamageMove rolls the secondary per hit and only when the
+          // target survived the hit and holds no status, so a KO'd or already
+          // statused foe makes it worthless. Flinch is volatile and still
+          // lands on a statused foe.
+          const ail = m.ailment;
+          const secondaryLands =
+            ail !== "none" && (ail === "flinch" || foe.status === "none");
+          if (secondaryLands) {
+            value += (m.ailmentChance / 100) * STATUS_VALUE[ail];
+          }
+          // Accuracy gates the whole move, not just the secondary: a 70%-accurate
+          // Thunder is worth less than a 100%-accurate Thunderbolt of the same
+          // power, and estimateDamage cannot express that because it never
+          // models a miss. The status branch already weights by accuracy, so
+          // scaling here keeps both branches on one axis.
+          score = (m.accuracy / 100) * value;
+        }
       }
     }
 
